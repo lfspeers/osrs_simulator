@@ -168,7 +168,7 @@ def hit_chance(attack_roll: int, defence_roll: int) -> float:
     Returns:
         Hit probability as a float between 0 and 1.
 
-    Formula:
+    Formula (from OSRS Wiki):
         if attack_roll > defence_roll:
             1 - (defence_roll + 2) / (2 * (attack_roll + 1))
         else:
@@ -195,17 +195,17 @@ def calculate_dps(
     Returns:
         Damage per second.
 
-    Formula: hit_chance * (max_hit + 1) / 2 / attack_speed_seconds
+    Formula (from OSRS Wiki):
+        hit_chance * ((max_hit / 2) + 1 / (max_hit + 1)) / attack_speed_seconds
     Where attack_speed_seconds = attack_speed_ticks * 0.6
     """
     if attack_speed_ticks <= 0:
         return 0.0
 
-    # Average damage when hitting: (0 + max_hit) / 2 = max_hit / 2
-    # But since we can hit 0 to max_hit inclusive, it's (max_hit + 1) / 2
-    # Actually, average hit is max_hit / 2 since damage is uniform [0, max_hit]
-    # The +1 comes from the inclusive range
-    average_damage = max_hit / 2.0
+    # Average damage per hit from OSRS Wiki:
+    # (max_hit / 2) + 1 / (max_hit + 1)
+    # This accounts for the uniform distribution from 0 to max_hit inclusive
+    average_damage = (max_hit / 2.0) + (1.0 / (max_hit + 1))
 
     # Damage per attack = hit_chance * average_damage
     damage_per_attack = hit_chance * average_damage
@@ -308,6 +308,22 @@ def osmumtens_fang_average_damage(min_hit: int, max_hit: int) -> float:
     return (min_hit + max_hit) / 2.0
 
 
+def _average_hit(max_hit: int) -> float:
+    """Calculate average damage per successful hit.
+
+    Formula from OSRS Wiki: (max_hit / 2) + 1 / (max_hit + 1)
+
+    Args:
+        max_hit: Maximum hit value.
+
+    Returns:
+        Average damage when the attack lands.
+    """
+    if max_hit <= 0:
+        return 0.0
+    return (max_hit / 2.0) + (1.0 / (max_hit + 1))
+
+
 def scythe_hit_chance_and_damage(
     attack_roll: int,
     defence_roll: int,
@@ -332,18 +348,18 @@ def scythe_hit_chance_and_damage(
     """
     base_hit_chance = hit_chance(attack_roll, defence_roll)
 
-    # Each hit has independent accuracy
-    avg_damage = base_hit_chance * (max_hit / 2.0)
+    # Each hit has independent accuracy, use wiki average damage formula
+    avg_damage = base_hit_chance * _average_hit(max_hit)
 
     if target_size >= 2:
         # Second hit does 50% damage
         second_max = math.floor(max_hit * 0.5)
-        avg_damage += base_hit_chance * (second_max / 2.0)
+        avg_damage += base_hit_chance * _average_hit(second_max)
 
     if target_size >= 3:
         # Third hit does 25% damage
         third_max = math.floor(max_hit * 0.25)
-        avg_damage += base_hit_chance * (third_max / 2.0)
+        avg_damage += base_hit_chance * _average_hit(third_max)
 
     return (base_hit_chance, avg_damage)
 
@@ -581,10 +597,12 @@ def format_formula_breakdown(fb: FormulaBreakdown) -> str:
     # DPS
     step = "7" if fb.combat_style == "melee" else "6"
     attack_speed_seconds = fb.attack_speed_ticks * 0.6
+    avg_dmg = (fb.max_hit / 2.0) + (1.0 / (fb.max_hit + 1))
     lines.extend([
         f"{step}. DPS:",
-        f"   = hit_chance * (max_hit / 2) / attack_speed_seconds",
-        f"   = {fb.hit_chance:.4f} * ({fb.max_hit} / 2) / {attack_speed_seconds:.1f}",
+        f"   = hit_chance * ((max_hit / 2) + 1 / (max_hit + 1)) / attack_speed_seconds",
+        f"   = {fb.hit_chance:.4f} * (({fb.max_hit} / 2) + 1 / ({fb.max_hit} + 1)) / {attack_speed_seconds:.1f}",
+        f"   = {fb.hit_chance:.4f} * {avg_dmg:.4f} / {attack_speed_seconds:.1f}",
         f"   = {fb.dps:.4f}",
     ])
 
