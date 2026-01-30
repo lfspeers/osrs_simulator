@@ -24,24 +24,31 @@ def effective_level(
         boost: Level boost from potions (e.g., +19 from super combat).
         prayer_multiplier: Multiplier from active prayer (e.g., 1.23 for Piety strength).
         style_bonus: Bonus from attack style (+0 to +3).
-        void_multiplier: Multiplier from void equipment (1.0, 1.1, or 1.125).
+        void_multiplier: Multiplier from void equipment (1.0, 1.1, or 1.45 for magic).
         is_magic: If True, use +9 base constant (magic); if False, use +8 (melee/ranged).
 
     Returns:
         The effective level after all modifiers.
 
-    Formula: floor((base + boost) * prayer_mult) + style_bonus + base_constant, then * void_mult
-    Where base_constant is +9 for magic, +8 for melee/ranged.
+    Formula (melee/ranged):
+        floor((base + boost) * prayer) + style + 8, then * void, then floor
+    Formula (magic):
+        floor((base + boost) * prayer) * void + style + 9, then floor
+        Note: Magic applies void BEFORE adding style and constant.
     """
     # Apply prayer multiplier first
     level_with_prayer = math.floor((base_level + boost) * prayer_multiplier)
 
-    # Add style bonus and the base constant (+9 for magic, +8 for melee/ranged)
     base_constant = 9 if is_magic else 8
-    level_with_style = level_with_prayer + style_bonus + base_constant
 
-    # Apply void multiplier last
-    return math.floor(level_with_style * void_multiplier)
+    if is_magic:
+        # Magic: void is applied BEFORE adding style bonus and +9
+        level_with_void = math.floor(level_with_prayer * void_multiplier)
+        return level_with_void + style_bonus + base_constant
+    else:
+        # Melee/Ranged: void is applied AFTER adding style bonus and +8
+        level_with_style = level_with_prayer + style_bonus + base_constant
+        return math.floor(level_with_style * void_multiplier)
 
 
 def max_hit_melee(
