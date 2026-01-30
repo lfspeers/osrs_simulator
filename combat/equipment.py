@@ -46,6 +46,157 @@ class CombatStyle(Enum):
     MAGIC = "magic"
 
 
+class EquipmentSlot(Enum):
+    """Equipment slot types matching OSRS/RuneLite."""
+    HEAD = "head"
+    CAPE = "cape"
+    NECK = "neck"
+    AMMO = "ammo"
+    WEAPON = "weapon"
+    BODY = "body"
+    SHIELD = "shield"
+    LEGS = "legs"
+    HANDS = "hands"
+    FEET = "feet"
+    RING = "ring"
+
+
+@dataclass
+class EquippedItem:
+    """An item equipped in a slot.
+
+    Attributes:
+        name: Item name (e.g., 'Dragon hunter crossbow').
+        item_id: OSRS item ID (for RuneLite integration).
+        stats: Equipment stats provided by this item.
+    """
+    name: str
+    item_id: int = 0
+    stats: "EquipmentStats" = None
+
+    def __post_init__(self):
+        if self.stats is None:
+            self.stats = EquipmentStats()
+
+
+@dataclass
+class EquipmentLoadout:
+    """A complete equipment setup with items in each slot.
+
+    This structure is compatible with RuneLite's Inventory Setups plugin.
+    Equipment stats are automatically calculated from equipped items.
+
+    Attributes:
+        name: Loadout name (e.g., 'Vorkath DHCB').
+        head: Helmet/mask slot.
+        cape: Cape/cloak slot.
+        neck: Amulet/necklace slot.
+        ammo: Ammunition slot.
+        weapon: Main weapon slot.
+        body: Body armour slot.
+        shield: Shield/off-hand slot.
+        legs: Leg armour slot.
+        hands: Gloves slot.
+        feet: Boots slot.
+        ring: Ring slot.
+    """
+    name: str = ""
+    head: Optional[EquippedItem] = None
+    cape: Optional[EquippedItem] = None
+    neck: Optional[EquippedItem] = None
+    ammo: Optional[EquippedItem] = None
+    weapon: Optional[EquippedItem] = None
+    body: Optional[EquippedItem] = None
+    shield: Optional[EquippedItem] = None
+    legs: Optional[EquippedItem] = None
+    hands: Optional[EquippedItem] = None
+    feet: Optional[EquippedItem] = None
+    ring: Optional[EquippedItem] = None
+
+    def get_slot(self, slot: EquipmentSlot) -> Optional[EquippedItem]:
+        """Get the item in a specific slot."""
+        return getattr(self, slot.value, None)
+
+    def set_slot(self, slot: EquipmentSlot, item: Optional[EquippedItem]) -> None:
+        """Set an item in a specific slot."""
+        setattr(self, slot.value, item)
+
+    def get_all_items(self) -> List[EquippedItem]:
+        """Get all equipped items (non-None slots)."""
+        items = []
+        for slot in EquipmentSlot:
+            item = self.get_slot(slot)
+            if item is not None:
+                items.append(item)
+        return items
+
+    def get_item_names(self) -> List[str]:
+        """Get names of all equipped items (for effect detection)."""
+        return [item.name.lower().replace(" ", "_").replace("'", "")
+                for item in self.get_all_items()]
+
+    def get_total_stats(self) -> "EquipmentStats":
+        """Calculate total equipment stats from all equipped items."""
+        total = EquipmentStats()
+        for item in self.get_all_items():
+            if item.stats:
+                total = total + item.stats
+        return total
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> "EquipmentLoadout":
+        """Create loadout from a dictionary (e.g., RuneLite export).
+
+        Expected format (matching RuneLite Inventory Setups):
+        {
+            "name": "Setup Name",
+            "equipment": [
+                {"id": 12345, "name": "Item Name", "slot": "HEAD"},
+                ...
+            ]
+        }
+        """
+        loadout = cls(name=data.get("name", ""))
+
+        equipment_list = data.get("equipment", [])
+        for item_data in equipment_list:
+            if not item_data:
+                continue
+
+            slot_name = item_data.get("slot", "").lower()
+            if not slot_name:
+                continue
+
+            try:
+                slot = EquipmentSlot(slot_name)
+            except ValueError:
+                continue
+
+            item = EquippedItem(
+                name=item_data.get("name", "Unknown"),
+                item_id=item_data.get("id", 0),
+            )
+            loadout.set_slot(slot, item)
+
+        return loadout
+
+    def to_dict(self) -> Dict:
+        """Export loadout to dictionary format."""
+        equipment = []
+        for slot in EquipmentSlot:
+            item = self.get_slot(slot)
+            if item:
+                equipment.append({
+                    "id": item.item_id,
+                    "name": item.name,
+                    "slot": slot.value.upper(),
+                })
+        return {
+            "name": self.name,
+            "equipment": equipment,
+        }
+
+
 class AttackStyle(Enum):
     """Attack style options that affect bonuses."""
     # Melee styles
