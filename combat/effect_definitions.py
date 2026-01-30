@@ -586,6 +586,90 @@ AMULET_OF_AVARICE = PassiveEffect(
 
 
 # =============================================================================
+# Enchanted Bolt Effects (proc-based)
+# =============================================================================
+# Note: These are proc effects with < 1.0 chance. The DPS calculation should
+# factor in the expected damage increase from procs.
+
+RUBY_BOLTS_E = PassiveEffect(
+    id="ruby_bolts_e",
+    name="Ruby bolts (e)",
+    source_type=SourceType.AMMO,
+    source_items=["ruby_bolts_e", "ruby_dragon_bolts_e"],
+    combat_styles=[CombatStyle.RANGED],
+    modifier=EffectModifier(damage_mult=1.0),  # Special: 20% of target current HP (capped 100)
+    proc_chance=0.06,  # 6% base, 11% with Kandarin hard diary
+    description="Blood Forfeit: 6% chance to deal 20% of target's current HP (max 100), costs 10% of your HP",
+)
+
+DIAMOND_BOLTS_E = PassiveEffect(
+    id="diamond_bolts_e",
+    name="Diamond bolts (e)",
+    source_type=SourceType.AMMO,
+    source_items=["diamond_bolts_e", "diamond_dragon_bolts_e"],
+    combat_styles=[CombatStyle.RANGED],
+    modifier=EffectModifier(ignores_defence=True),
+    proc_chance=0.10,  # 10% base, 15% with diary
+    description="Armour Piercing: 10% chance to ignore target's ranged defence",
+)
+
+ONYX_BOLTS_E = PassiveEffect(
+    id="onyx_bolts_e",
+    name="Onyx bolts (e)",
+    source_type=SourceType.AMMO,
+    source_items=["onyx_bolts_e", "onyx_dragon_bolts_e"],
+    combat_styles=[CombatStyle.RANGED],
+    modifier=EffectModifier(damage_mult=1.20),  # +20% damage on proc
+    proc_chance=0.11,  # 11% base, 16.5% with diary
+    description="Life Leech: 11% chance to deal +20% damage and heal 25% of damage dealt",
+)
+
+DRAGONSTONE_BOLTS_E = PassiveEffect(
+    id="dragonstone_bolts_e",
+    name="Dragonstone bolts (e)",
+    source_type=SourceType.AMMO,
+    source_items=["dragonstone_bolts_e", "dragonstone_dragon_bolts_e"],
+    combat_styles=[CombatStyle.RANGED],
+    modifier=EffectModifier(damage_mult=1.0),  # Adds dragonfire damage
+    proc_chance=0.06,  # 6% base, 11% with diary
+    description="Dragon's Breath: 6% chance to inflict dragonfire (damage based on ranged level)",
+)
+
+OPAL_BOLTS_E = PassiveEffect(
+    id="opal_bolts_e",
+    name="Opal bolts (e)",
+    source_type=SourceType.AMMO,
+    source_items=["opal_bolts_e", "opal_dragon_bolts_e"],
+    combat_styles=[CombatStyle.RANGED],
+    modifier=EffectModifier(damage_mult=1.0),  # Adds 10% of ranged level
+    proc_chance=0.05,  # 5% base, 7.5% with diary
+    description="Lucky Lightning: 5% chance to deal extra damage (10% of ranged level)",
+)
+
+PEARL_BOLTS_E = PassiveEffect(
+    id="pearl_bolts_e",
+    name="Pearl bolts (e)",
+    source_type=SourceType.AMMO,
+    source_items=["pearl_bolts_e", "pearl_dragon_bolts_e"],
+    combat_styles=[CombatStyle.RANGED],
+    modifier=EffectModifier(damage_mult=1.0),  # Extra water damage
+    proc_chance=0.06,  # 6% base, 11% with diary
+    description="Sea Curse: 6% chance to deal extra water damage (1/15 ranged level, 1/5 vs fiery)",
+)
+
+EMERALD_BOLTS_E = PassiveEffect(
+    id="emerald_bolts_e",
+    name="Emerald bolts (e)",
+    source_type=SourceType.AMMO,
+    source_items=["emerald_bolts_e", "emerald_dragon_bolts_e"],
+    combat_styles=[CombatStyle.RANGED],
+    modifier=EffectModifier(damage_mult=1.0),  # Applies poison
+    proc_chance=0.55,  # 55% base, 57.5% with diary
+    description="Magical Poison: 55% chance to inflict poison (5 damage)",
+)
+
+
+# =============================================================================
 # Set Bonus Definitions
 # =============================================================================
 
@@ -752,6 +836,14 @@ ALL_EFFECTS: Dict[str, PassiveEffect] = {
     "viggoras": VIGGORAS_CHAINMACE,
     "thammarons": THAMMARONS_SCEPTRE,
     "avarice": AMULET_OF_AVARICE,
+    # Enchanted bolts
+    "ruby_bolts_e": RUBY_BOLTS_E,
+    "diamond_bolts_e": DIAMOND_BOLTS_E,
+    "onyx_bolts_e": ONYX_BOLTS_E,
+    "dragonstone_bolts_e": DRAGONSTONE_BOLTS_E,
+    "opal_bolts_e": OPAL_BOLTS_E,
+    "pearl_bolts_e": PEARL_BOLTS_E,
+    "emerald_bolts_e": EMERALD_BOLTS_E,
 }
 
 # All set bonuses

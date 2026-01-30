@@ -39,6 +39,10 @@ from .equipment import (
     get_weapon,
     list_weapons,
     WEAPONS,
+    Ammo,
+    get_ammo,
+    list_ammo,
+    AMMO,
 )
 
 from .prayers import (
@@ -151,6 +155,11 @@ __all__ = [
     "set_weapon_loader",
     "get_weapon_loader",
     "WEAPONS",
+    # Ammo
+    "Ammo",
+    "get_ammo",
+    "list_ammo",
+    "AMMO",
     # Prayers
     "Prayer",
     "PrayerBonus",

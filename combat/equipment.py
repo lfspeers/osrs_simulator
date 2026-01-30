@@ -662,6 +662,191 @@ WEAPONS: Dict[str, Weapon] = {
 }
 
 
+# =============================================================================
+# Ammo Definitions
+# =============================================================================
+
+@dataclass
+class Ammo:
+    """Ammunition stats for ranged weapons.
+
+    Attributes:
+        name: Display name.
+        ranged_strength: Ranged strength bonus.
+        ranged_attack: Ranged attack bonus (some ammo has this).
+        is_enchanted: Whether this is an enchanted bolt/arrow.
+        enchant_proc_chance: Base proc chance for enchanted effect.
+        enchant_proc_chance_diary: Proc chance with Kandarin hard diary.
+    """
+    name: str
+    ranged_strength: int
+    ranged_attack: int = 0
+    is_enchanted: bool = False
+    enchant_proc_chance: float = 0.0
+    enchant_proc_chance_diary: float = 0.0
+
+
+AMMO: Dict[str, Ammo] = {
+    # -------------------------------------------------------------------------
+    # Arrows
+    # -------------------------------------------------------------------------
+    "bronze_arrow": Ammo(name="Bronze arrow", ranged_strength=7),
+    "iron_arrow": Ammo(name="Iron arrow", ranged_strength=10),
+    "steel_arrow": Ammo(name="Steel arrow", ranged_strength=16),
+    "mithril_arrow": Ammo(name="Mithril arrow", ranged_strength=22),
+    "adamant_arrow": Ammo(name="Adamant arrow", ranged_strength=31),
+    "rune_arrow": Ammo(name="Rune arrow", ranged_strength=49),
+    "amethyst_arrow": Ammo(name="Amethyst arrow", ranged_strength=55),
+    "dragon_arrow": Ammo(name="Dragon arrow", ranged_strength=60),
+
+    # -------------------------------------------------------------------------
+    # Bolts (unenchanted)
+    # -------------------------------------------------------------------------
+    "bronze_bolts": Ammo(name="Bronze bolts", ranged_strength=10),
+    "iron_bolts": Ammo(name="Iron bolts", ranged_strength=46),
+    "steel_bolts": Ammo(name="Steel bolts", ranged_strength=64),
+    "mithril_bolts": Ammo(name="Mithril bolts", ranged_strength=82),
+    "adamant_bolts": Ammo(name="Adamant bolts", ranged_strength=100),
+    "runite_bolts": Ammo(name="Runite bolts", ranged_strength=115),
+    "dragon_bolts": Ammo(name="Dragon bolts", ranged_strength=122),
+
+    # -------------------------------------------------------------------------
+    # Enchanted Bolts (gem-tipped)
+    # -------------------------------------------------------------------------
+    "opal_bolts_e": Ammo(
+        name="Opal bolts (e)", ranged_strength=14,
+        is_enchanted=True, enchant_proc_chance=0.05, enchant_proc_chance_diary=0.075,
+    ),
+    "jade_bolts_e": Ammo(
+        name="Jade bolts (e)", ranged_strength=28,
+        is_enchanted=True, enchant_proc_chance=0.06, enchant_proc_chance_diary=0.11,
+    ),
+    "pearl_bolts_e": Ammo(
+        name="Pearl bolts (e)", ranged_strength=48,
+        is_enchanted=True, enchant_proc_chance=0.06, enchant_proc_chance_diary=0.11,
+    ),
+    "topaz_bolts_e": Ammo(
+        name="Topaz bolts (e)", ranged_strength=66,
+        is_enchanted=True, enchant_proc_chance=0.04, enchant_proc_chance_diary=0.06,
+    ),
+    "sapphire_bolts_e": Ammo(
+        name="Sapphire bolts (e)", ranged_strength=83,
+        is_enchanted=True, enchant_proc_chance=0.05, enchant_proc_chance_diary=0.075,
+    ),
+    "emerald_bolts_e": Ammo(
+        name="Emerald bolts (e)", ranged_strength=85,
+        is_enchanted=True, enchant_proc_chance=0.55, enchant_proc_chance_diary=0.575,  # 55% base
+    ),
+    "ruby_bolts_e": Ammo(
+        name="Ruby bolts (e)", ranged_strength=103,
+        is_enchanted=True, enchant_proc_chance=0.06, enchant_proc_chance_diary=0.11,
+    ),
+    "diamond_bolts_e": Ammo(
+        name="Diamond bolts (e)", ranged_strength=105,
+        is_enchanted=True, enchant_proc_chance=0.10, enchant_proc_chance_diary=0.15,
+    ),
+    "dragonstone_bolts_e": Ammo(
+        name="Dragonstone bolts (e)", ranged_strength=117,
+        is_enchanted=True, enchant_proc_chance=0.06, enchant_proc_chance_diary=0.11,
+    ),
+    "onyx_bolts_e": Ammo(
+        name="Onyx bolts (e)", ranged_strength=120,
+        is_enchanted=True, enchant_proc_chance=0.11, enchant_proc_chance_diary=0.165,
+    ),
+
+    # Dragon gem-tipped bolts
+    "opal_dragon_bolts_e": Ammo(
+        name="Opal dragon bolts (e)", ranged_strength=14 + 108,
+        is_enchanted=True, enchant_proc_chance=0.05, enchant_proc_chance_diary=0.075,
+    ),
+    "jade_dragon_bolts_e": Ammo(
+        name="Jade dragon bolts (e)", ranged_strength=28 + 94,
+        is_enchanted=True, enchant_proc_chance=0.06, enchant_proc_chance_diary=0.11,
+    ),
+    "pearl_dragon_bolts_e": Ammo(
+        name="Pearl dragon bolts (e)", ranged_strength=48 + 74,
+        is_enchanted=True, enchant_proc_chance=0.06, enchant_proc_chance_diary=0.11,
+    ),
+    "topaz_dragon_bolts_e": Ammo(
+        name="Topaz dragon bolts (e)", ranged_strength=66 + 56,
+        is_enchanted=True, enchant_proc_chance=0.04, enchant_proc_chance_diary=0.06,
+    ),
+    "sapphire_dragon_bolts_e": Ammo(
+        name="Sapphire dragon bolts (e)", ranged_strength=83 + 39,
+        is_enchanted=True, enchant_proc_chance=0.05, enchant_proc_chance_diary=0.075,
+    ),
+    "emerald_dragon_bolts_e": Ammo(
+        name="Emerald dragon bolts (e)", ranged_strength=85 + 37,
+        is_enchanted=True, enchant_proc_chance=0.55, enchant_proc_chance_diary=0.575,
+    ),
+    "ruby_dragon_bolts_e": Ammo(
+        name="Ruby dragon bolts (e)", ranged_strength=103 + 19,
+        is_enchanted=True, enchant_proc_chance=0.06, enchant_proc_chance_diary=0.11,
+    ),
+    "diamond_dragon_bolts_e": Ammo(
+        name="Diamond dragon bolts (e)", ranged_strength=105 + 17,
+        is_enchanted=True, enchant_proc_chance=0.10, enchant_proc_chance_diary=0.15,
+    ),
+    "dragonstone_dragon_bolts_e": Ammo(
+        name="Dragonstone dragon bolts (e)", ranged_strength=117 + 5,
+        is_enchanted=True, enchant_proc_chance=0.06, enchant_proc_chance_diary=0.11,
+    ),
+    "onyx_dragon_bolts_e": Ammo(
+        name="Onyx dragon bolts (e)", ranged_strength=120 + 2,
+        is_enchanted=True, enchant_proc_chance=0.11, enchant_proc_chance_diary=0.165,
+    ),
+
+    # -------------------------------------------------------------------------
+    # Darts
+    # -------------------------------------------------------------------------
+    "bronze_dart": Ammo(name="Bronze dart", ranged_strength=1, ranged_attack=0),
+    "iron_dart": Ammo(name="Iron dart", ranged_strength=3, ranged_attack=2),
+    "steel_dart": Ammo(name="Steel dart", ranged_strength=4, ranged_attack=3),
+    "mithril_dart": Ammo(name="Mithril dart", ranged_strength=7, ranged_attack=4),
+    "adamant_dart": Ammo(name="Adamant dart", ranged_strength=10, ranged_attack=6),
+    "rune_dart": Ammo(name="Rune dart", ranged_strength=14, ranged_attack=7),
+    "amethyst_dart": Ammo(name="Amethyst dart", ranged_strength=18, ranged_attack=6),
+    "dragon_dart": Ammo(name="Dragon dart", ranged_strength=20, ranged_attack=7),
+
+    # -------------------------------------------------------------------------
+    # Thrown Weapons / Javelins
+    # -------------------------------------------------------------------------
+    "dragon_javelin": Ammo(name="Dragon javelin", ranged_strength=150),
+    "amethyst_javelin": Ammo(name="Amethyst javelin", ranged_strength=135),
+    "rune_javelin": Ammo(name="Rune javelin", ranged_strength=124),
+
+    # -------------------------------------------------------------------------
+    # Special Ammo
+    # -------------------------------------------------------------------------
+    "broad_bolts": Ammo(name="Broad bolts", ranged_strength=100),
+    "amethyst_broad_bolts": Ammo(name="Amethyst broad bolts", ranged_strength=115),
+}
+
+
+def get_ammo(name: str) -> Optional[Ammo]:
+    """Get ammo by its key name.
+
+    Args:
+        name: The ammo's key name (e.g., 'dragon_arrow').
+
+    Returns:
+        The Ammo object, or None if not found.
+    """
+    normalized = name.lower().replace(" ", "_").replace("'", "").replace("(", "").replace(")", "")
+    if normalized in AMMO:
+        return AMMO[normalized]
+    return None
+
+
+def list_ammo() -> List[str]:
+    """List all available ammo names.
+
+    Returns:
+        List of ammo key names.
+    """
+    return list(AMMO.keys())
+
+
 def get_weapon(name: str) -> Optional[Weapon]:
     """Get a weapon by its key name.
 
