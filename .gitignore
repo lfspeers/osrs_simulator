@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Cache files
+.hiscores_cache.json
+*.cache
+
+# Data files (large, can be re-fetched)
+data/items.json
+data/monsters.json
+
+# Keep metadata to track version
+!data/metadata.json
+
+# OS
+.DS_Store
+Thumbs.db
+nul
+
+# Claude
+.claude/
