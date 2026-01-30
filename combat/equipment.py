@@ -198,6 +198,23 @@ SLOT_ITEM_CLASSES: Dict[EquipmentSlot, type] = {
     EquipmentSlot.RING: RingItem,
 }
 
+# RuneLite Inventory Setups equipment slot order (positional array indices)
+# Order: head(0), cape(1), neck(2), weapon(3), body(4), shield(5),
+#        legs(6), hands(7), feet(8), ring(9), ammo(10)
+RUNELITE_SLOT_ORDER: List[EquipmentSlot] = [
+    EquipmentSlot.HEAD,    # 0
+    EquipmentSlot.CAPE,    # 1
+    EquipmentSlot.NECK,    # 2
+    EquipmentSlot.WEAPON,  # 3
+    EquipmentSlot.BODY,    # 4
+    EquipmentSlot.SHIELD,  # 5
+    EquipmentSlot.LEGS,    # 6
+    EquipmentSlot.HANDS,   # 7
+    EquipmentSlot.FEET,    # 8
+    EquipmentSlot.RING,    # 9
+    EquipmentSlot.AMMO,    # 10
+]
+
 
 def create_slot_item(slot: EquipmentSlot, **kwargs) -> SlotItem:
     """Factory function to create the correct item type for a slot.
@@ -299,7 +316,19 @@ class EquipmentLoadout:
     def from_dict(cls, data: Dict) -> "EquipmentLoadout":
         """Create loadout from a dictionary (e.g., RuneLite export).
 
-        Expected format (matching RuneLite Inventory Setups):
+        Supports two formats:
+
+        1. RuneLite Inventory Setups format (positional array):
+        {
+            "name": "Setup Name",
+            "equipment": [
+                {"id": 12345, "name": "Item Name", "quantity": 1},  // index 0 = head
+                {"id": -1, "name": "", "quantity": 0},              // index 1 = cape (empty)
+                ...
+            ]
+        }
+
+        2. Explicit slot format:
         {
             "name": "Setup Name",
             "equipment": [
@@ -311,28 +340,77 @@ class EquipmentLoadout:
         loadout = cls(name=data.get("name", ""))
 
         equipment_list = data.get("equipment", [])
-        for item_data in equipment_list:
-            if not item_data:
-                continue
 
-            slot_name = item_data.get("slot", "").lower()
-            if not slot_name:
-                continue
+        # Detect format: if first item has "slot" key, use explicit format
+        # Otherwise use RuneLite positional format
+        uses_explicit_slots = any(
+            item_data.get("slot") for item_data in equipment_list if item_data
+        )
 
-            try:
-                slot = EquipmentSlot(slot_name)
-            except ValueError:
-                continue
+        if uses_explicit_slots:
+            # Explicit slot format
+            for item_data in equipment_list:
+                if not item_data:
+                    continue
 
-            # Create the correct item type for this slot
-            item = create_slot_item(
-                slot,
-                name=item_data.get("name", "Unknown"),
-                item_id=item_data.get("id", 0),
-            )
-            loadout.set_slot(slot, item)
+                slot_name = item_data.get("slot", "").lower()
+                if not slot_name:
+                    continue
+
+                try:
+                    slot = EquipmentSlot(slot_name)
+                except ValueError:
+                    continue
+
+                # Skip empty items (id -1 or no name)
+                item_id = item_data.get("id", 0)
+                item_name = item_data.get("name", "")
+                if item_id == -1 or not item_name:
+                    continue
+
+                item = create_slot_item(
+                    slot,
+                    name=item_name,
+                    item_id=item_id,
+                )
+                loadout.set_slot(slot, item)
+        else:
+            # RuneLite positional array format
+            for index, item_data in enumerate(equipment_list):
+                if not item_data:
+                    continue
+                if index >= len(RUNELITE_SLOT_ORDER):
+                    break
+
+                # Skip empty items (id -1 is RuneLite's empty placeholder)
+                item_id = item_data.get("id", 0)
+                item_name = item_data.get("name", "")
+                if item_id == -1 or not item_name:
+                    continue
+
+                slot = RUNELITE_SLOT_ORDER[index]
+                item = create_slot_item(
+                    slot,
+                    name=item_name,
+                    item_id=item_id,
+                )
+                loadout.set_slot(slot, item)
 
         return loadout
+
+    @classmethod
+    def from_runelite_json(cls, json_str: str) -> "EquipmentLoadout":
+        """Create loadout from RuneLite Inventory Setups JSON string.
+
+        Args:
+            json_str: JSON string exported from RuneLite.
+
+        Returns:
+            EquipmentLoadout instance.
+        """
+        import json
+        data = json.loads(json_str)
+        return cls.from_dict(data)
 
     def to_dict(self) -> Dict:
         """Export loadout to dictionary format."""

@@ -222,9 +222,13 @@ class PassiveEffect:
         Returns:
             True if this effect is provided by the item.
         """
-        item_lower = item_name.lower()
+        # Normalize item name: lowercase, remove spaces/underscores/parentheses
+        def normalize(s: str) -> str:
+            return s.lower().replace("_", "").replace(" ", "").replace("(", "").replace(")", "").replace("'", "")
+
+        item_norm = normalize(item_name)
         return any(
-            source.lower() in item_lower or item_lower in source.lower()
+            normalize(source) in item_norm or item_norm in normalize(source)
             for source in self.source_items
         )
 
