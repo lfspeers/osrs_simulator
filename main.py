@@ -53,6 +53,14 @@ from combat import (
     WEAPONS,
     MONSTERS,
     SPELLS,
+    # Passive effects system
+    list_effects,
+    list_set_bonuses,
+    get_effect,
+    get_set_bonus,
+    ALL_EFFECTS,
+    ALL_SET_BONUSES,
+    format_active_effects,
 )
 from combat.simulation import CombatStats as SimCombatStats
 from combat.formulas import format_formula_breakdown
@@ -388,6 +396,70 @@ def create_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Show the DPS calculation formula with values"
     )
+    # New passive effects system flags
+    combat_dps_parser.add_argument(
+        "--equipped",
+        nargs="+",
+        default=[],
+        help="List of equipped item names/IDs for effect detection (e.g., slayer_helmet_i dharoks_helm)"
+    )
+    combat_dps_parser.add_argument(
+        "--wilderness",
+        action="store_true",
+        help="Enable wilderness effects (for Craw's bow, Viggora's, etc.)"
+    )
+    combat_dps_parser.add_argument(
+        "--hp-percent",
+        type=float,
+        default=100.0,
+        help="Player HP percentage (1-100, for Dharok's effect). Default: 100"
+    )
+    combat_dps_parser.add_argument(
+        "--show-effects", "-E",
+        action="store_true",
+        help="Show which passive effects are active"
+    )
+    combat_dps_parser.add_argument(
+        "--use-effects",
+        action="store_true",
+        help="Use new passive effects system instead of legacy gear modifiers"
+    )
+    # Target stat reductions from special attacks
+    combat_dps_parser.add_argument(
+        "--dwh",
+        type=int,
+        default=0,
+        metavar="N",
+        help="Number of successful Dragon Warhammer specs (each reduces def by 30%%)"
+    )
+    combat_dps_parser.add_argument(
+        "--bgs",
+        type=int,
+        default=0,
+        metavar="DAMAGE",
+        help="Total BGS spec damage dealt (reduces target defence by this amount)"
+    )
+    combat_dps_parser.add_argument(
+        "--arclight-specs",
+        type=int,
+        default=0,
+        metavar="N",
+        help="Number of successful Arclight specs (each reduces def by 10%%)"
+    )
+    combat_dps_parser.add_argument(
+        "--def-reduction",
+        type=float,
+        default=0.0,
+        metavar="PCT",
+        help="Custom defence reduction as decimal (0.0-1.0, e.g., 0.3 for 30%%)"
+    )
+    combat_dps_parser.add_argument(
+        "--magic-reduction",
+        type=float,
+        default=0.0,
+        metavar="PCT",
+        help="Target magic level reduction as decimal (0.0-1.0)"
+    )
 
     # Combat list subcommand
     combat_list_parser = combat_subparsers.add_parser(
@@ -396,7 +468,7 @@ def create_parser() -> argparse.ArgumentParser:
     )
     combat_list_parser.add_argument(
         "category",
-        choices=["weapons", "monsters", "prayers", "presets", "spells"],
+        choices=["weapons", "monsters", "prayers", "presets", "spells", "effects", "sets"],
         help="Category to list"
     )
     combat_list_parser.add_argument(
@@ -1122,6 +1194,50 @@ def cmd_combat_dps(args):
         elif "crossbow" in args.weapon:
             gear_modifiers.dragon_hunter_crossbow = True
 
+    # Get equipped items for effect detection
+    equipped_items = getattr(args, 'equipped', []) or []
+    in_wilderness = getattr(args, 'wilderness', False)
+    hp_percent_raw = getattr(args, 'hp_percent', 100.0)
+    hp_percent = max(0.01, min(1.0, hp_percent_raw / 100.0))  # Convert to 0.0-1.0
+    use_effects = getattr(args, 'use_effects', False)
+
+    # Calculate target defence reduction from special attacks
+    # Reductions stack multiplicatively in OSRS
+    # We track the remaining multiplier (1.0 = no reduction, 0.5 = 50% of original)
+    def_remaining = 1.0
+    magic_reduction = getattr(args, 'magic_reduction', 0.0)
+
+    # DWH: each successful spec reduces defence by 30% of CURRENT level
+    # After N specs: remaining = base * (0.7)^N
+    dwh_specs = getattr(args, 'dwh', 0)
+    if dwh_specs > 0:
+        def_remaining *= (0.7 ** dwh_specs)
+
+    # BGS: reduces defence by damage dealt (flat reduction from current level)
+    # This happens AFTER DWH in the calculation chain
+    bgs_damage = getattr(args, 'bgs', 0)
+    if bgs_damage > 0 and monster:
+        # Calculate defence after DWH, then subtract BGS damage
+        current_def = monster.defence_level * def_remaining
+        after_bgs = max(0, current_def - bgs_damage)
+        # Convert back to a multiplier of original
+        def_remaining = after_bgs / monster.defence_level if monster.defence_level > 0 else 0
+
+    # Arclight: each spec reduces defence by 10% of CURRENT level
+    arclight_specs = getattr(args, 'arclight_specs', 0)
+    if arclight_specs > 0:
+        def_remaining *= (0.9 ** arclight_specs)
+
+    # Custom reduction (applied multiplicatively on top)
+    custom_reduction = getattr(args, 'def_reduction', 0.0)
+    if custom_reduction > 0:
+        def_remaining *= (1.0 - custom_reduction)
+
+    # Convert remaining multiplier to reduction percentage
+    def_reduction = 1.0 - def_remaining
+    def_reduction = min(1.0, max(0.0, def_reduction))
+    magic_reduction = min(1.0, max(0.0, magic_reduction))
+
     # Set up combat
     setup = CombatSetup(
         stats=stats,
@@ -1133,10 +1249,17 @@ def cmd_combat_dps(args):
         potion=potion,
         target=monster,
         on_slayer_task=getattr(args, 'slayer_task', False),
+        # New effect system fields
+        equipped_items=equipped_items,
+        in_wilderness=in_wilderness,
+        player_hp_percent=hp_percent,
+        # Target stat reductions
+        target_defence_reduction=def_reduction,
+        target_magic_reduction=magic_reduction,
     )
 
     # Calculate (with formula tracking if requested)
-    calc = CombatCalculator(setup)
+    calc = CombatCalculator(setup, use_effects=use_effects)
     track_formula = getattr(args, 'show_formula', False)
     result = calc.calculate(track_formula=track_formula)
 
@@ -1151,6 +1274,13 @@ def cmd_combat_dps(args):
     print(f"Potion: {args.potion.replace('_', ' ').title()}")
     if preset_name:
         print(f"Gear: {preset_name}")
+    # Show defence reduction if active
+    if def_reduction > 0:
+        reduced_def = int(monster.defence_level * (1 - def_reduction))
+        print(f"Target Def: {monster.defence_level} -> {reduced_def} (-{def_reduction:.0%})")
+    if magic_reduction > 0:
+        reduced_mag = int(monster.magic_level * (1 - magic_reduction))
+        print(f"Target Magic: {monster.magic_level} -> {reduced_mag} (-{magic_reduction:.0%})")
     print()
     print(f"DPS: {result.dps:.2f}")
     print(f"Max Hit: {result.max_hit}")
@@ -1164,6 +1294,15 @@ def cmd_combat_dps(args):
     if track_formula and result.formula_breakdown:
         print()
         print(format_formula_breakdown(result.formula_breakdown))
+
+    # Show active effects if requested
+    show_effects = getattr(args, 'show_effects', False)
+    if show_effects and result.active_effects:
+        print()
+        print(format_active_effects(result.active_effects))
+    elif show_effects and use_effects:
+        print()
+        print("No passive effects active.")
 
 
 def cmd_combat_list(args):
@@ -1230,6 +1369,50 @@ def cmd_combat_list(args):
             if s:
                 multi = " [AoE]" if s.is_multi_target else ""
                 print(f"  {name}: {s.name} (lvl {s.magic_level}, max {s.base_max_hit}){multi}")
+
+    elif args.category == "effects":
+        effects = list_effects()
+        print(f"=== Available Passive Effects ({len(effects)}) ===")
+        for effect_id in sorted(effects):
+            effect = get_effect(effect_id)
+            if effect:
+                # Format modifiers
+                mods = []
+                if effect.modifier.accuracy_mult != 1.0:
+                    mods.append(f"acc {effect.modifier.accuracy_mult:.2%}")
+                if effect.modifier.damage_mult != 1.0:
+                    mods.append(f"dmg {effect.modifier.damage_mult:.2%}")
+                if effect.modifier.double_accuracy_roll:
+                    mods.append("2x acc roll")
+                if effect.modifier.extra_hits:
+                    mods.append(f"multi-hit")
+                if effect.modifier.scales_with_target_magic:
+                    mods.append("scales w/ magic")
+                if effect.modifier.scales_with_missing_hp:
+                    mods.append("scales w/ HP loss")
+                mod_str = ", ".join(mods) if mods else "special"
+
+                # Format condition
+                cond = []
+                if effect.condition.vs_attribute:
+                    cond.append(f"vs {effect.condition.vs_attribute}")
+                if effect.condition.on_slayer_task:
+                    cond.append("on task")
+                if effect.condition.in_wilderness:
+                    cond.append("in wildy")
+                cond_str = f" [{', '.join(cond)}]" if cond else ""
+
+                print(f"  {effect_id}: {effect.name} ({mod_str}){cond_str}")
+
+    elif args.category == "sets":
+        sets = list_set_bonuses()
+        print(f"=== Available Set Bonuses ({len(sets)}) ===")
+        for set_id in sorted(sets):
+            set_bonus = get_set_bonus(set_id)
+            if set_bonus:
+                pieces = f"{set_bonus.min_pieces}/{len(set_bonus.required_items)} pieces"
+                print(f"  {set_id}: {set_bonus.name} ({pieces})")
+                print(f"    Effect: {set_bonus.effect.description}")
 
 
 def cmd_combat_simulate(args):

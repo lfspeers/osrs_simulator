@@ -108,6 +108,36 @@ from .storage import (
     generate_simulation_id,
 )
 
+# New passive effects system
+from .effects import (
+    PassiveEffect,
+    SetBonus,
+    EffectCondition,
+    EffectModifier,
+    ActiveEffect,
+    ResolvedModifiers,
+    SourceType,
+)
+
+from .effect_engine import (
+    EffectEngine,
+    CombatContext,
+    format_active_effects,
+    get_active_effects,
+    resolve_modifiers,
+)
+
+from .effect_definitions import (
+    ALL_EFFECTS,
+    ALL_SET_BONUSES,
+    WEAPON_EFFECTS,
+    STACKING_GROUPS,
+    get_effect,
+    get_set_bonus,
+    list_effects,
+    list_set_bonuses,
+)
+
 __all__ = [
     # Equipment
     "AttackType",
@@ -171,4 +201,25 @@ __all__ = [
     "SimulationResult",
     "SimulationStorage",
     "generate_simulation_id",
+    # Passive Effects System
+    "PassiveEffect",
+    "SetBonus",
+    "EffectCondition",
+    "EffectModifier",
+    "ActiveEffect",
+    "ResolvedModifiers",
+    "SourceType",
+    "EffectEngine",
+    "CombatContext",
+    "format_active_effects",
+    "get_active_effects",
+    "resolve_modifiers",
+    "ALL_EFFECTS",
+    "ALL_SET_BONUSES",
+    "WEAPON_EFFECTS",
+    "STACKING_GROUPS",
+    "get_effect",
+    "get_set_bonus",
+    "list_effects",
+    "list_set_bonuses",
 ]

@@ -20,6 +20,9 @@ from .formulas import (
     osmumtens_fang_max_hit,
     osmumtens_fang_average_damage,
     scythe_hit_chance_and_damage,
+    twisted_bow_multiplier,
+    twisted_bow_effective_accuracy,
+    twisted_bow_max_hit,
     FormulaBreakdown,
     format_formula_breakdown,
 )
@@ -35,6 +38,8 @@ from .equipment import (
 )
 from .entities import MonsterStats, get_monster, MONSTERS
 from .prayers import Prayer, get_prayer
+from .effects import ResolvedModifiers, ActiveEffect
+from .effect_engine import EffectEngine, CombatContext, format_active_effects
 
 
 @dataclass
@@ -121,10 +126,25 @@ class CombatSetup:
     target: Optional[MonsterStats] = None
     on_slayer_task: bool = False
 
+    # New fields for passive effects system
+    equipped_items: List[str] = field(default_factory=list)  # For set/item effect detection
+    in_wilderness: bool = False  # For wilderness weapon effects
+    player_hp_percent: float = 1.0  # For Dharok's (0.0-1.0, where 1.0 = full HP)
+
+    # Target stat modifiers (for DWH, BGS, Arclight specs, etc.)
+    # These are reductions applied to the target's base stats
+    target_defence_reduction: float = 0.0  # 0.0-1.0, e.g., 0.3 for one DWH spec
+    target_magic_reduction: float = 0.0    # 0.0-1.0, for vulnerability etc.
+
     def __post_init__(self):
         # If weapon provided, add its stats to equipment stats
         if self.weapon:
             self.equipment_stats = self.equipment_stats + self.weapon.stats
+        # Auto-add weapon to equipped items if not already present
+        if self.weapon and self.weapon.name:
+            weapon_key = self.weapon.name.lower().replace(" ", "_").replace("'", "")
+            if weapon_key not in [item.lower().replace(" ", "_").replace("'", "") for item in self.equipped_items]:
+                self.equipped_items = list(self.equipped_items) + [weapon_key]
 
 
 @dataclass
@@ -142,6 +162,9 @@ class CombatResult:
 
     # Formula breakdown (populated when track_formula=True)
     formula_breakdown: Optional[FormulaBreakdown] = None
+
+    # Active effects (populated when use_effects=True)
+    active_effects: Optional[ResolvedModifiers] = None
 
     # Derived values
     @property
@@ -172,13 +195,46 @@ class CombatResult:
 class CombatCalculator:
     """Calculator for OSRS combat DPS."""
 
-    def __init__(self, setup: CombatSetup):
+    def __init__(self, setup: CombatSetup, use_effects: bool = False):
         """Initialize with a combat setup.
 
         Args:
             setup: The complete combat setup.
+            use_effects: If True, use the new passive effects system.
+                        If False (default), use legacy GearModifiers for
+                        backwards compatibility.
         """
         self.setup = setup
+        self.use_effects = use_effects
+        self._effect_engine = EffectEngine() if use_effects else None
+        self._resolved_modifiers: Optional[ResolvedModifiers] = None
+
+    def _get_effect_modifiers(self) -> ResolvedModifiers:
+        """Get resolved modifiers from the effect system.
+
+        Returns:
+            ResolvedModifiers with all active effects applied.
+        """
+        if self._resolved_modifiers is not None:
+            return self._resolved_modifiers
+
+        weapon = self.setup.weapon
+        target = self.setup.target
+
+        context = CombatContext(
+            combat_style=weapon.combat_style if weapon else CombatStyle.MELEE,
+            attack_type=weapon.attack_type.value if weapon else "slash",
+            weapon_name=weapon.name if weapon else "",
+            equipped_items=self.setup.equipped_items,
+            target=target,
+            on_slayer_task=self.setup.on_slayer_task,
+            in_wilderness=self.setup.in_wilderness,
+            player_hp_percent=self.setup.player_hp_percent,
+            player_max_hp=self.setup.stats.hitpoints,
+        )
+
+        self._resolved_modifiers = self._effect_engine.get_modifiers(context)
+        return self._resolved_modifiers
 
     def calculate(self, track_formula: bool = False) -> CombatResult:
         """Calculate DPS for the current setup.
@@ -216,23 +272,33 @@ class CombatCalculator:
         style = setup.attack_style
         target = setup.target
 
-        # Get gear multipliers
-        vs_undead = target.is_undead if target else False
-        vs_dragon = target.is_dragon if target else False
-        on_task = setup.on_slayer_task
+        # Get modifiers from either effect system or legacy GearModifiers
+        if self.use_effects:
+            modifiers = self._get_effect_modifiers()
+            accuracy_mult = modifiers.accuracy_mult
+            damage_mult = modifiers.damage_mult
+            # In effect system, void is included in the modifiers
+            void_accuracy = 1.0
+            void_damage = 1.0
+        else:
+            # Legacy: get gear multipliers
+            vs_undead = target.is_undead if target else False
+            vs_dragon = target.is_dragon if target else False
+            on_task = setup.on_slayer_task
 
-        accuracy_mult = setup.gear_modifiers.get_accuracy_multiplier(
-            CombatStyle.MELEE, weapon.attack_type,
-            vs_undead=vs_undead, vs_dragon=vs_dragon, on_slayer_task=on_task
-        )
-        damage_mult = setup.gear_modifiers.get_damage_multiplier(
-            CombatStyle.MELEE, weapon.attack_type,
-            vs_undead=vs_undead, vs_dragon=vs_dragon, on_slayer_task=on_task
-        )
+            accuracy_mult = setup.gear_modifiers.get_accuracy_multiplier(
+                CombatStyle.MELEE, weapon.attack_type,
+                vs_undead=vs_undead, vs_dragon=vs_dragon, on_slayer_task=on_task
+            )
+            damage_mult = setup.gear_modifiers.get_damage_multiplier(
+                CombatStyle.MELEE, weapon.attack_type,
+                vs_undead=vs_undead, vs_dragon=vs_dragon, on_slayer_task=on_task
+            )
 
-        # Void multipliers
-        void_accuracy = 1.1 if setup.gear_modifiers.void_melee else 1.0
-        void_damage = 1.1 if setup.gear_modifiers.void_melee else 1.0
+            # Void multipliers
+            void_accuracy = 1.1 if setup.gear_modifiers.void_melee else 1.0
+            void_damage = 1.1 if setup.gear_modifiers.void_melee else 1.0
+            modifiers = None
 
         # Effective levels
         eff_attack = effective_level(
@@ -261,13 +327,16 @@ class CombatCalculator:
         # Calculate max hit
         max_dmg = max_hit_melee(eff_strength, strength_bonus, damage_mult)
 
-        # Defence roll
+        # Defence roll (with optional reduction from DWH/BGS specs)
         def_roll = 0
         def_bonus = 0
         def_level = 0
         if target:
             def_bonus = target.get_defence_bonus(weapon.attack_type.value)
             def_level = target.defence_level
+            # Apply defence reduction (e.g., from DWH spec)
+            if setup.target_defence_reduction > 0:
+                def_level = max(0, int(def_level * (1 - setup.target_defence_reduction)))
             def_roll = defence_roll_npc(def_level, def_bonus)
 
         # Hit chance
@@ -277,18 +346,34 @@ class CombatCalculator:
         attack_speed = weapon.attack_speed
         avg_damage = max_dmg / 2.0
 
-        # Osmumten's Fang special handling
-        if weapon.name == "Osmumten's fang":
-            accuracy = osmumtens_fang_hit_chance(atk_roll, def_roll)
-            min_hit, max_hit = osmumtens_fang_max_hit(max_dmg)
-            avg_damage = osmumtens_fang_average_damage(min_hit, max_hit)
-            max_dmg = max_hit  # Report the actual max hit
+        # Handle special mechanics from effect system
+        if self.use_effects and modifiers:
+            # Osmumten's Fang: double accuracy roll, min/max hit
+            if modifiers.double_accuracy_roll:
+                accuracy = osmumtens_fang_hit_chance(atk_roll, def_roll)
+            if modifiers.min_hit_percent is not None and modifiers.max_hit_percent is not None:
+                min_hit = math.floor(max_dmg * modifiers.min_hit_percent)
+                max_hit = math.floor(max_dmg * modifiers.max_hit_percent)
+                avg_damage = osmumtens_fang_average_damage(min_hit, max_hit)
+                max_dmg = max_hit
 
-        # Scythe special handling
-        if weapon.name == "Scythe of vitur" and target:
-            accuracy, avg_damage = scythe_hit_chance_and_damage(
-                atk_roll, def_roll, max_dmg, target.tile_size
-            )
+            # Scythe: extra hits based on target size
+            if modifiers.extra_hits and target:
+                accuracy, avg_damage = scythe_hit_chance_and_damage(
+                    atk_roll, def_roll, max_dmg, target.tile_size
+                )
+        else:
+            # Legacy: handle special weapons by name
+            if weapon.name == "Osmumten's fang":
+                accuracy = osmumtens_fang_hit_chance(atk_roll, def_roll)
+                min_hit, max_hit = osmumtens_fang_max_hit(max_dmg)
+                avg_damage = osmumtens_fang_average_damage(min_hit, max_hit)
+                max_dmg = max_hit
+
+            if weapon.name == "Scythe of vitur" and target:
+                accuracy, avg_damage = scythe_hit_chance_and_damage(
+                    atk_roll, def_roll, max_dmg, target.tile_size
+                )
 
         # DPS calculation
         dps = accuracy * avg_damage / (attack_speed * 0.6)
@@ -328,6 +413,7 @@ class CombatCalculator:
             weapon_name=weapon.name,
             attack_speed_ticks=attack_speed,
             formula_breakdown=breakdown,
+            active_effects=modifiers if self.use_effects else None,
         )
 
     def _calculate_ranged(self, track_formula: bool = False) -> CombatResult:
@@ -339,25 +425,34 @@ class CombatCalculator:
         style = setup.attack_style
         target = setup.target
 
-        # Get gear multipliers
-        vs_undead = target.is_undead if target else False
-        vs_dragon = target.is_dragon if target else False
-        on_task = setup.on_slayer_task
+        # Get modifiers from either effect system or legacy GearModifiers
+        if self.use_effects:
+            modifiers = self._get_effect_modifiers()
+            accuracy_mult = modifiers.accuracy_mult
+            damage_mult = modifiers.damage_mult
+            void_accuracy = 1.0
+            void_damage = 1.0
+        else:
+            # Legacy: get gear multipliers
+            vs_undead = target.is_undead if target else False
+            vs_dragon = target.is_dragon if target else False
+            on_task = setup.on_slayer_task
 
-        accuracy_mult = setup.gear_modifiers.get_accuracy_multiplier(
-            CombatStyle.RANGED, AttackType.RANGED,
-            vs_undead=vs_undead, vs_dragon=vs_dragon, on_slayer_task=on_task
-        )
-        damage_mult = setup.gear_modifiers.get_damage_multiplier(
-            CombatStyle.RANGED, AttackType.RANGED,
-            vs_undead=vs_undead, vs_dragon=vs_dragon, on_slayer_task=on_task
-        )
+            accuracy_mult = setup.gear_modifiers.get_accuracy_multiplier(
+                CombatStyle.RANGED, AttackType.RANGED,
+                vs_undead=vs_undead, vs_dragon=vs_dragon, on_slayer_task=on_task
+            )
+            damage_mult = setup.gear_modifiers.get_damage_multiplier(
+                CombatStyle.RANGED, AttackType.RANGED,
+                vs_undead=vs_undead, vs_dragon=vs_dragon, on_slayer_task=on_task
+            )
 
-        # Void multipliers
-        void_accuracy = 1.1 if setup.gear_modifiers.void_ranged else 1.0
-        void_damage = 1.1 if setup.gear_modifiers.void_ranged else 1.0
-        if setup.gear_modifiers.elite_void and setup.gear_modifiers.void_ranged:
-            void_damage += 0.025
+            # Void multipliers
+            void_accuracy = 1.1 if setup.gear_modifiers.void_ranged else 1.0
+            void_damage = 1.1 if setup.gear_modifiers.void_ranged else 1.0
+            if setup.gear_modifiers.elite_void and setup.gear_modifiers.void_ranged:
+                void_damage += 0.025
+            modifiers = None
 
         # Effective ranged level
         style_atk_bonus = style.attack_bonus if style.combat_style == CombatStyle.RANGED else 0
@@ -389,17 +484,37 @@ class CombatCalculator:
         # Calculate max hit
         max_dmg = max_hit_ranged(eff_ranged_str, ranged_strength_bonus, damage_mult)
 
-        # Defence roll
+        # Defence roll (with optional reduction from DWH/BGS specs)
         def_roll = 0
         def_level = 0
         def_bonus = 0
         if target:
             def_level = target.defence_level
+            # Apply defence reduction (e.g., from DWH spec)
+            if setup.target_defence_reduction > 0:
+                def_level = max(0, int(def_level * (1 - setup.target_defence_reduction)))
             def_bonus = target.ranged_defence
             def_roll = defence_roll_npc(def_level, def_bonus)
 
         # Hit chance
         accuracy = hit_chance(atk_roll, def_roll)
+
+        # Handle Twisted Bow scaling
+        if self.use_effects and modifiers and modifiers.scales_with_target_magic:
+            # Twisted bow: scale with target's magic level
+            target_magic = target.magic_level if target else 1
+            tbow_acc_mult, tbow_dmg_mult = twisted_bow_multiplier(target_magic)
+            # Apply tbow multipliers on top of base attack roll and max hit
+            atk_roll = math.floor(atk_roll * tbow_acc_mult)
+            max_dmg = math.floor(max_dmg * tbow_dmg_mult)
+            accuracy = hit_chance(atk_roll, def_roll)
+        elif weapon.name == "Twisted bow" and target:
+            # Legacy: handle Twisted bow by name
+            target_magic = target.magic_level
+            tbow_acc_mult, tbow_dmg_mult = twisted_bow_multiplier(target_magic)
+            atk_roll = math.floor(atk_roll * tbow_acc_mult)
+            max_dmg = math.floor(max_dmg * tbow_dmg_mult)
+            accuracy = hit_chance(atk_roll, def_roll)
 
         # Attack speed
         attack_speed = weapon.attack_speed
@@ -442,6 +557,7 @@ class CombatCalculator:
             weapon_name=weapon.name,
             attack_speed_ticks=attack_speed,
             formula_breakdown=breakdown,
+            active_effects=modifiers if self.use_effects else None,
         )
 
     def _calculate_magic(self, track_formula: bool = False) -> CombatResult:
@@ -452,24 +568,33 @@ class CombatCalculator:
         prayer = setup.prayer
         target = setup.target
 
-        # Get gear multipliers
-        vs_undead = target.is_undead if target else False
-        on_task = setup.on_slayer_task
+        # Get modifiers from either effect system or legacy GearModifiers
+        if self.use_effects:
+            modifiers = self._get_effect_modifiers()
+            accuracy_mult = modifiers.accuracy_mult
+            damage_mult = modifiers.damage_mult
+            void_accuracy = 1.0
+            void_damage = 1.0
+        else:
+            # Legacy: get gear multipliers
+            vs_undead = target.is_undead if target else False
+            on_task = setup.on_slayer_task
 
-        accuracy_mult = setup.gear_modifiers.get_accuracy_multiplier(
-            CombatStyle.MAGIC, AttackType.MAGIC,
-            vs_undead=vs_undead, on_slayer_task=on_task
-        )
-        damage_mult = setup.gear_modifiers.get_damage_multiplier(
-            CombatStyle.MAGIC, AttackType.MAGIC,
-            vs_undead=vs_undead, on_slayer_task=on_task
-        )
+            accuracy_mult = setup.gear_modifiers.get_accuracy_multiplier(
+                CombatStyle.MAGIC, AttackType.MAGIC,
+                vs_undead=vs_undead, on_slayer_task=on_task
+            )
+            damage_mult = setup.gear_modifiers.get_damage_multiplier(
+                CombatStyle.MAGIC, AttackType.MAGIC,
+                vs_undead=vs_undead, on_slayer_task=on_task
+            )
 
-        # Void multipliers
-        void_accuracy = 1.45 if setup.gear_modifiers.void_magic else 1.0
-        void_damage = 1.0
-        if setup.gear_modifiers.elite_void and setup.gear_modifiers.void_magic:
-            void_damage = 1.025
+            # Void multipliers
+            void_accuracy = 1.45 if setup.gear_modifiers.void_magic else 1.0
+            void_damage = 1.0
+            if setup.gear_modifiers.elite_void and setup.gear_modifiers.void_magic:
+                void_damage = 1.025
+            modifiers = None
 
         # Effective magic level
         eff_magic = effective_level(
@@ -477,7 +602,8 @@ class CombatCalculator:
             boost=setup.potion.magic,
             prayer_multiplier=prayer.magic_attack_multiplier,
             style_bonus=0,  # Magic typically doesn't have style bonus
-            void_multiplier=void_accuracy
+            void_multiplier=void_accuracy,
+            is_magic=True  # Magic uses +9 constant instead of +8
         )
 
         # Attack bonus from equipment
@@ -491,15 +617,22 @@ class CombatCalculator:
         magic_damage_bonus = setup.equipment_stats.magic_damage
         max_dmg = max_hit_magic(base_max, magic_damage_bonus, damage_mult * void_damage)
 
-        # Defence roll (uses magic level for magic defence)
+        # Defence roll (uses magic level for magic defence, with optional reductions)
         def_roll = 0
         def_level = 0
         def_bonus = 0
         if target:
             def_level = target.magic_level  # Magic uses magic level for defence
+            actual_def_level = target.defence_level
+            # Apply magic reduction (e.g., from vulnerability)
+            if setup.target_magic_reduction > 0:
+                def_level = max(0, int(def_level * (1 - setup.target_magic_reduction)))
+            # Apply defence reduction (e.g., from DWH spec)
+            if setup.target_defence_reduction > 0:
+                actual_def_level = max(0, int(actual_def_level * (1 - setup.target_defence_reduction)))
             def_bonus = target.magic_defence
             def_roll = defence_roll_npc(
-                target.defence_level,
+                actual_def_level,
                 def_bonus,
                 def_level,
                 is_magic_attack=True
@@ -551,6 +684,7 @@ class CombatCalculator:
             weapon_name=weapon.name,
             attack_speed_ticks=attack_speed,
             formula_breakdown=breakdown,
+            active_effects=modifiers if self.use_effects else None,
         )
 
 

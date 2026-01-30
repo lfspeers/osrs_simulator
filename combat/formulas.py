@@ -14,9 +14,10 @@ def effective_level(
     boost: int = 0,
     prayer_multiplier: float = 1.0,
     style_bonus: int = 0,
-    void_multiplier: float = 1.0
+    void_multiplier: float = 1.0,
+    is_magic: bool = False
 ) -> int:
-    """Calculate the effective level for attack or strength.
+    """Calculate the effective level for attack, strength, ranged, or magic.
 
     Args:
         base_level: Base skill level (1-99).
@@ -24,17 +25,20 @@ def effective_level(
         prayer_multiplier: Multiplier from active prayer (e.g., 1.23 for Piety strength).
         style_bonus: Bonus from attack style (+0 to +3).
         void_multiplier: Multiplier from void equipment (1.0, 1.1, or 1.125).
+        is_magic: If True, use +9 base constant (magic); if False, use +8 (melee/ranged).
 
     Returns:
         The effective level after all modifiers.
 
-    Formula: floor((base + boost) * prayer_mult) + style_bonus + 8, then * void_mult
+    Formula: floor((base + boost) * prayer_mult) + style_bonus + base_constant, then * void_mult
+    Where base_constant is +9 for magic, +8 for melee/ranged.
     """
     # Apply prayer multiplier first
     level_with_prayer = math.floor((base_level + boost) * prayer_multiplier)
 
-    # Add style bonus and the constant +8
-    level_with_style = level_with_prayer + style_bonus + 8
+    # Add style bonus and the base constant (+9 for magic, +8 for melee/ranged)
+    base_constant = 9 if is_magic else 8
+    level_with_style = level_with_prayer + style_bonus + base_constant
 
     # Apply void multiplier last
     return math.floor(level_with_style * void_multiplier)
@@ -342,6 +346,77 @@ def scythe_hit_chance_and_damage(
         avg_damage += base_hit_chance * (third_max / 2.0)
 
     return (base_hit_chance, avg_damage)
+
+
+def twisted_bow_multiplier(target_magic: int) -> Tuple[float, float]:
+    """Calculate Twisted Bow accuracy and damage multipliers.
+
+    The Twisted Bow's damage and accuracy scale with the target's magic level.
+    This makes it extremely effective against high-magic bosses but weaker
+    against low-magic targets.
+
+    Args:
+        target_magic: The target's magic level (capped at 250).
+
+    Returns:
+        Tuple of (accuracy_multiplier, damage_multiplier).
+
+    Formula (from OSRS Wiki):
+        Accuracy: 140 + ((3*M - 10) / 100) - ((0.3*M - 100)^2 / 100)
+        Damage:   250 + ((3*M - 14) / 100) - ((0.3*M - 140)^2 / 100)
+
+        Where M = min(max(magic, 0), 250)
+        Results are capped at 140% accuracy and 250% damage.
+    """
+    # Cap magic level at 250 (minimum 0)
+    magic = min(max(target_magic, 0), 250)
+
+    # Accuracy multiplier calculation
+    accuracy = 140 + ((3 * magic - 10) / 100) - (((0.3 * magic - 100) ** 2) / 100)
+    accuracy = min(accuracy, 140)  # Cap at 140%
+    accuracy = max(accuracy, 0)    # Floor at 0%
+
+    # Damage multiplier calculation
+    damage = 250 + ((3 * magic - 14) / 100) - (((0.3 * magic - 140) ** 2) / 100)
+    damage = min(damage, 250)  # Cap at 250%
+    damage = max(damage, 0)    # Floor at 0%
+
+    # Convert from percentage to multiplier
+    return (accuracy / 100, damage / 100)
+
+
+def twisted_bow_effective_accuracy(
+    attack_roll: int,
+    defence_roll: int,
+    target_magic: int,
+) -> float:
+    """Calculate hit chance with Twisted Bow.
+
+    Args:
+        attack_roll: Base attack roll before tbow modifier.
+        defence_roll: Target's defence roll.
+        target_magic: Target's magic level.
+
+    Returns:
+        Hit probability as a float between 0 and 1.
+    """
+    acc_mult, _ = twisted_bow_multiplier(target_magic)
+    modified_attack_roll = math.floor(attack_roll * acc_mult)
+    return hit_chance(modified_attack_roll, defence_roll)
+
+
+def twisted_bow_max_hit(base_max_hit: int, target_magic: int) -> int:
+    """Calculate Twisted Bow max hit.
+
+    Args:
+        base_max_hit: Max hit before tbow modifier.
+        target_magic: Target's magic level.
+
+    Returns:
+        Modified max hit.
+    """
+    _, dmg_mult = twisted_bow_multiplier(target_magic)
+    return math.floor(base_max_hit * dmg_mult)
 
 
 @dataclass
