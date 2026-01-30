@@ -101,10 +101,13 @@ class EffectCondition:
             if attack_type is None or attack_type.lower() != self.using_attack_type.lower():
                 return False
 
-        # Check weapon name patterns
+        # Check weapon name patterns (normalize underscores/spaces for matching)
         if self.using_specific_weapon is not None and weapon_name is not None:
-            weapon_lower = weapon_name.lower()
-            if not any(pattern.lower() in weapon_lower for pattern in self.using_specific_weapon):
+            weapon_normalized = weapon_name.lower().replace("_", " ").replace("'", "")
+            if not any(
+                pattern.lower().replace("_", " ").replace("'", "") in weapon_normalized
+                for pattern in self.using_specific_weapon
+            ):
                 return False
 
         return True
