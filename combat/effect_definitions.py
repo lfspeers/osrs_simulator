@@ -780,7 +780,6 @@ WEAPON_EFFECTS: Dict[str, PassiveEffect] = {
     "dragon_hunter_lance": DRAGON_HUNTER_LANCE,
     "dragon_hunter_crossbow": DRAGON_HUNTER_CROSSBOW,
     "keris_partisan": KERIS_PARTISAN,
-    "keris": KERIS_PARTISAN,
     "arclight": ARCLIGHT,
     "darklight": DARKLIGHT,
     "silverlight": SILVERLIGHT,

@@ -476,6 +476,189 @@ WEAPONS: Dict[str, Weapon] = {
         combat_style=CombatStyle.MAGIC,
         stats=EquipmentStats(magic_attack=28, magic_damage=0.15),
     ),
+
+    # -------------------------------------------------------------------------
+    # Demon Slaying Weapons
+    # -------------------------------------------------------------------------
+    "arclight": Weapon(
+        name="Arclight",
+        attack_speed=4,
+        attack_type=AttackType.SLASH,
+        combat_style=CombatStyle.MELEE,
+        stats=EquipmentStats(stab_attack=38, slash_attack=75, crush_attack=-2, melee_strength=72),
+    ),
+    "darklight": Weapon(
+        name="Darklight",
+        attack_speed=4,
+        attack_type=AttackType.SLASH,
+        combat_style=CombatStyle.MELEE,
+        stats=EquipmentStats(stab_attack=30, slash_attack=70, crush_attack=-2, melee_strength=67),
+    ),
+    "silverlight": Weapon(
+        name="Silverlight",
+        attack_speed=4,
+        attack_type=AttackType.SLASH,
+        combat_style=CombatStyle.MELEE,
+        stats=EquipmentStats(stab_attack=8, slash_attack=13, crush_attack=-2, melee_strength=9),
+    ),
+
+    # -------------------------------------------------------------------------
+    # Barrows Weapons
+    # -------------------------------------------------------------------------
+    "dharoks_greataxe": Weapon(
+        name="Dharok's greataxe",
+        attack_speed=7,
+        attack_type=AttackType.SLASH,
+        combat_style=CombatStyle.MELEE,
+        stats=EquipmentStats(stab_attack=-4, slash_attack=103, crush_attack=95, melee_strength=105),
+        is_two_handed=True,
+    ),
+    "veracs_flail": Weapon(
+        name="Verac's flail",
+        attack_speed=4,
+        attack_type=AttackType.CRUSH,
+        combat_style=CombatStyle.MELEE,
+        stats=EquipmentStats(stab_attack=68, slash_attack=-2, crush_attack=82, melee_strength=72, prayer=6),
+    ),
+    "guthans_warspear": Weapon(
+        name="Guthan's warspear",
+        attack_speed=5,
+        attack_type=AttackType.STAB,
+        combat_style=CombatStyle.MELEE,
+        stats=EquipmentStats(stab_attack=75, slash_attack=75, crush_attack=75, melee_strength=75),
+        is_two_handed=True,
+    ),
+    "torags_hammers": Weapon(
+        name="Torag's hammers",
+        attack_speed=5,
+        attack_type=AttackType.CRUSH,
+        combat_style=CombatStyle.MELEE,
+        stats=EquipmentStats(stab_attack=-4, slash_attack=-4, crush_attack=85, melee_strength=72),
+    ),
+    "ahrims_staff": Weapon(
+        name="Ahrim's staff",
+        attack_speed=4,
+        attack_type=AttackType.MAGIC,
+        combat_style=CombatStyle.MAGIC,
+        stats=EquipmentStats(magic_attack=15, magic_damage=0.05, crush_attack=65, melee_strength=50),
+        is_two_handed=True,
+    ),
+    "karils_crossbow": Weapon(
+        name="Karil's crossbow",
+        attack_speed=4,
+        attack_type=AttackType.RANGED,
+        combat_style=CombatStyle.RANGED,
+        stats=EquipmentStats(ranged_attack=84, ranged_strength=55),
+        is_two_handed=True,
+    ),
+
+    # -------------------------------------------------------------------------
+    # Keris Weapons
+    # -------------------------------------------------------------------------
+    "keris_partisan": Weapon(
+        name="Keris partisan",
+        attack_speed=4,
+        attack_type=AttackType.STAB,
+        combat_style=CombatStyle.MELEE,
+        stats=EquipmentStats(stab_attack=78, slash_attack=-2, crush_attack=-2, melee_strength=72),
+    ),
+    "keris_partisan_of_breaching": Weapon(
+        name="Keris partisan of breaching",
+        attack_speed=4,
+        attack_type=AttackType.STAB,
+        combat_style=CombatStyle.MELEE,
+        stats=EquipmentStats(stab_attack=78, slash_attack=-2, crush_attack=-2, melee_strength=72),
+    ),
+
+    # -------------------------------------------------------------------------
+    # Leaf-bladed Weapons
+    # -------------------------------------------------------------------------
+    "leaf_bladed_battleaxe": Weapon(
+        name="Leaf-bladed battleaxe",
+        attack_speed=5,
+        attack_type=AttackType.SLASH,
+        combat_style=CombatStyle.MELEE,
+        stats=EquipmentStats(stab_attack=-2, slash_attack=92, crush_attack=72, melee_strength=92),
+    ),
+    "leaf_bladed_sword": Weapon(
+        name="Leaf-bladed sword",
+        attack_speed=4,
+        attack_type=AttackType.STAB,
+        combat_style=CombatStyle.MELEE,
+        stats=EquipmentStats(stab_attack=67, slash_attack=62, crush_attack=-2, melee_strength=50),
+    ),
+
+    # -------------------------------------------------------------------------
+    # Obsidian Weapons
+    # -------------------------------------------------------------------------
+    "toktz_xil_ak": Weapon(
+        name="Toktz-xil-ak",
+        attack_speed=4,
+        attack_type=AttackType.SLASH,
+        combat_style=CombatStyle.MELEE,
+        stats=EquipmentStats(stab_attack=40, slash_attack=60, crush_attack=-2, melee_strength=60),
+    ),
+    "tzhaar_ket_om": Weapon(
+        name="Tzhaar-ket-om",
+        attack_speed=7,
+        attack_type=AttackType.CRUSH,
+        combat_style=CombatStyle.MELEE,
+        stats=EquipmentStats(stab_attack=-4, slash_attack=-4, crush_attack=100, melee_strength=100),
+        is_two_handed=True,
+    ),
+    "toktz_xil_ek": Weapon(
+        name="Toktz-xil-ek",
+        attack_speed=4,
+        attack_type=AttackType.STAB,
+        combat_style=CombatStyle.MELEE,
+        stats=EquipmentStats(stab_attack=41, slash_attack=25, crush_attack=-4, melee_strength=49),
+    ),
+    "obsidian_maul": Weapon(
+        name="Tzhaar-ket-om",  # Alias
+        attack_speed=7,
+        attack_type=AttackType.CRUSH,
+        combat_style=CombatStyle.MELEE,
+        stats=EquipmentStats(stab_attack=-4, slash_attack=-4, crush_attack=100, melee_strength=100),
+        is_two_handed=True,
+    ),
+
+    # -------------------------------------------------------------------------
+    # Wilderness Weapons (Revenants)
+    # -------------------------------------------------------------------------
+    "viggoras_chainmace": Weapon(
+        name="Viggora's chainmace",
+        attack_speed=4,
+        attack_type=AttackType.CRUSH,
+        combat_style=CombatStyle.MELEE,
+        stats=EquipmentStats(stab_attack=31, slash_attack=12, crush_attack=72, melee_strength=72),
+    ),
+    "craws_bow": Weapon(
+        name="Craw's bow",
+        attack_speed=5,
+        attack_type=AttackType.RANGED,
+        combat_style=CombatStyle.RANGED,
+        stats=EquipmentStats(ranged_attack=75, ranged_strength=60),
+        is_two_handed=True,
+    ),
+    "thammarons_sceptre": Weapon(
+        name="Thammaron's sceptre",
+        attack_speed=4,
+        attack_type=AttackType.MAGIC,
+        combat_style=CombatStyle.MAGIC,
+        stats=EquipmentStats(magic_attack=20, magic_damage=0.0),
+        base_magic_max_hit=25,
+    ),
+
+    # -------------------------------------------------------------------------
+    # Smoke Battlestaff
+    # -------------------------------------------------------------------------
+    "smoke_battlestaff": Weapon(
+        name="Smoke battlestaff",
+        attack_speed=5,
+        attack_type=AttackType.MAGIC,
+        combat_style=CombatStyle.MAGIC,
+        stats=EquipmentStats(magic_attack=17, magic_damage=0.10),
+    ),
 }
 
 
