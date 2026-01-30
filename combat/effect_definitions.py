@@ -26,11 +26,13 @@ STACKING_GROUPS: Dict[str, List[str]] = {
     # Note: Black mask is the base component of slayer helm, same effect
     # Note: Salve amulet (neck slot) CAN stack with void (different slots)
     "slayer_undead": [
-        "salve_ei",      # Priority 5 (highest) - 20% all styles vs undead
-        "salve_e",       # Priority 4 - 20% melee vs undead
-        "salve",         # Priority 3 - 15% melee vs undead
-        "slayer_helm_i", # Priority 2 - 16.67% all styles on task
-        "slayer_helm",   # Priority 1 (lowest) - 16.67% melee on task
+        "salve_ei",           # Priority 5 (highest) - 20% all styles vs undead
+        "salve_e",            # Priority 4 - 20% melee vs undead
+        "salve",              # Priority 3 - 15% melee vs undead
+        "slayer_helm_i_melee",   # Priority 2 - 16.67% melee on task
+        "slayer_helm_i_ranged",  # Priority 2 - 15% ranged on task
+        "slayer_helm_i_magic",   # Priority 2 - 15% magic on task
+        "slayer_helm",        # Priority 1 (lowest) - 16.67% melee on task
         # Note: black_mask and black_mask_i are included in slayer_helm source_items
         # so they activate the same effect - no separate entry needed
     ],
@@ -138,17 +140,47 @@ SLAYER_HELM = PassiveEffect(
     description="7/6x (~16.67%) accuracy and damage on slayer task (melee only)",
 )
 
-SLAYER_HELM_IMBUED = PassiveEffect(
-    id="slayer_helm_i",
+# Slayer helm (i) has different bonuses per combat style:
+# - Melee: 7/6 (~16.67%)
+# - Ranged: 1.15 (15%)
+# - Magic: 1.15 (15%)
+SLAYER_HELM_IMBUED_MELEE = PassiveEffect(
+    id="slayer_helm_i_melee",
     name="Slayer Helmet (i)",
     source_type=SourceType.ARMOR,
     source_items=["slayer_helmet_i", "black_mask_i"],
-    combat_styles=[CombatStyle.MELEE, CombatStyle.RANGED, CombatStyle.MAGIC],
+    combat_styles=[CombatStyle.MELEE],
     condition=EffectCondition(on_slayer_task=True),
     modifier=EffectModifier(accuracy_mult=7/6, damage_mult=7/6),
     stacking_group="slayer_undead",
     stacking_priority=2,
-    description="7/6x (~16.67%) accuracy and damage on slayer task (all styles)",
+    description="7/6x (~16.67%) accuracy and damage on slayer task (melee)",
+)
+
+SLAYER_HELM_IMBUED_RANGED = PassiveEffect(
+    id="slayer_helm_i_ranged",
+    name="Slayer Helmet (i)",
+    source_type=SourceType.ARMOR,
+    source_items=["slayer_helmet_i", "black_mask_i"],
+    combat_styles=[CombatStyle.RANGED],
+    condition=EffectCondition(on_slayer_task=True),
+    modifier=EffectModifier(accuracy_mult=1.15, damage_mult=1.15),
+    stacking_group="slayer_undead",
+    stacking_priority=2,
+    description="15% accuracy and damage on slayer task (ranged)",
+)
+
+SLAYER_HELM_IMBUED_MAGIC = PassiveEffect(
+    id="slayer_helm_i_magic",
+    name="Slayer Helmet (i)",
+    source_type=SourceType.ARMOR,
+    source_items=["slayer_helmet_i", "black_mask_i"],
+    combat_styles=[CombatStyle.MAGIC],
+    condition=EffectCondition(on_slayer_task=True),
+    modifier=EffectModifier(accuracy_mult=1.15, damage_mult=1.15),
+    stacking_group="slayer_undead",
+    stacking_priority=2,
+    description="15% accuracy and damage on slayer task (magic)",
 )
 
 SALVE_AMULET = PassiveEffect(
@@ -793,7 +825,9 @@ ALL_EFFECTS: Dict[str, PassiveEffect] = {
     "elite_void_magic": ELITE_VOID_MAGIC,
     # Slayer/Salve
     "slayer_helm": SLAYER_HELM,
-    "slayer_helm_i": SLAYER_HELM_IMBUED,
+    "slayer_helm_i_melee": SLAYER_HELM_IMBUED_MELEE,
+    "slayer_helm_i_ranged": SLAYER_HELM_IMBUED_RANGED,
+    "slayer_helm_i_magic": SLAYER_HELM_IMBUED_MAGIC,
     "salve": SALVE_AMULET,
     "salve_e": SALVE_AMULET_E,
     "salve_ei": SALVE_AMULET_EI,
