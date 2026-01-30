@@ -61,22 +61,156 @@ class EquipmentSlot(Enum):
     RING = "ring"
 
 
+# =============================================================================
+# Slot-Specific Item Classes
+# =============================================================================
+# Each item is tied to a specific equipment slot. This provides type safety
+# and allows slot-specific attributes (e.g., weapons have attack_speed).
+
 @dataclass
-class EquippedItem:
-    """An item equipped in a slot.
+class SlotItem:
+    """Base class for equipped items. Each subclass is tied to a specific slot.
 
     Attributes:
         name: Item name (e.g., 'Dragon hunter crossbow').
         item_id: OSRS item ID (for RuneLite integration).
         stats: Equipment stats provided by this item.
     """
-    name: str
-    item_id: int = 0
-    stats: "EquipmentStats" = None
+    SLOT: EquipmentSlot = None  # Override in subclasses
 
-    def __post_init__(self):
-        if self.stats is None:
-            self.stats = EquipmentStats()
+    name: str = ""
+    item_id: int = 0
+    stats: "EquipmentStats" = field(default_factory=lambda: EquipmentStats())
+
+    @property
+    def slot(self) -> EquipmentSlot:
+        """Get the slot this item belongs to."""
+        return self.SLOT
+
+
+@dataclass
+class HeadItem(SlotItem):
+    """Head slot item (helmets, masks, hats)."""
+    SLOT: EquipmentSlot = field(default=EquipmentSlot.HEAD, init=False, repr=False)
+
+
+@dataclass
+class CapeItem(SlotItem):
+    """Cape slot item (capes, cloaks)."""
+    SLOT: EquipmentSlot = field(default=EquipmentSlot.CAPE, init=False, repr=False)
+
+
+@dataclass
+class NeckItem(SlotItem):
+    """Neck slot item (amulets, necklaces)."""
+    SLOT: EquipmentSlot = field(default=EquipmentSlot.NECK, init=False, repr=False)
+
+
+@dataclass
+class AmmoItem(SlotItem):
+    """Ammo slot item (arrows, bolts, darts, blessing).
+
+    Attributes:
+        is_enchanted: Whether this is enchanted ammo.
+        enchant_proc_chance: Base proc chance for enchanted effect.
+        enchant_proc_chance_diary: Proc chance with Kandarin hard diary.
+    """
+    SLOT: EquipmentSlot = field(default=EquipmentSlot.AMMO, init=False, repr=False)
+
+    is_enchanted: bool = False
+    enchant_proc_chance: float = 0.0
+    enchant_proc_chance_diary: float = 0.0
+
+
+@dataclass
+class WeaponItem(SlotItem):
+    """Weapon slot item (main-hand weapons).
+
+    Attributes:
+        attack_speed: Weapon attack speed in ticks.
+        attack_type: Primary attack type (stab, slash, crush, ranged, magic).
+        combat_style: Combat style category (melee, ranged, magic).
+        is_two_handed: Whether weapon requires both hands.
+        base_magic_max_hit: Base max hit for powered staves.
+        special_attack_cost: Special attack energy cost (0-100).
+    """
+    SLOT: EquipmentSlot = field(default=EquipmentSlot.WEAPON, init=False, repr=False)
+
+    attack_speed: int = 4
+    attack_type: "AttackType" = None
+    combat_style: "CombatStyle" = None
+    is_two_handed: bool = False
+    base_magic_max_hit: int = 0
+    special_attack_cost: int = 0
+
+
+@dataclass
+class BodyItem(SlotItem):
+    """Body slot item (platebodies, chainbodies, robes)."""
+    SLOT: EquipmentSlot = field(default=EquipmentSlot.BODY, init=False, repr=False)
+
+
+@dataclass
+class ShieldItem(SlotItem):
+    """Shield slot item (shields, defenders, books, off-hands)."""
+    SLOT: EquipmentSlot = field(default=EquipmentSlot.SHIELD, init=False, repr=False)
+
+
+@dataclass
+class LegsItem(SlotItem):
+    """Legs slot item (platelegs, plateskirts, robes)."""
+    SLOT: EquipmentSlot = field(default=EquipmentSlot.LEGS, init=False, repr=False)
+
+
+@dataclass
+class HandsItem(SlotItem):
+    """Hands slot item (gloves, vambraces, bracers)."""
+    SLOT: EquipmentSlot = field(default=EquipmentSlot.HANDS, init=False, repr=False)
+
+
+@dataclass
+class FeetItem(SlotItem):
+    """Feet slot item (boots)."""
+    SLOT: EquipmentSlot = field(default=EquipmentSlot.FEET, init=False, repr=False)
+
+
+@dataclass
+class RingItem(SlotItem):
+    """Ring slot item."""
+    SLOT: EquipmentSlot = field(default=EquipmentSlot.RING, init=False, repr=False)
+
+
+# Type alias for any slot item
+EquippedItem = SlotItem
+
+# Mapping from slot to item class
+SLOT_ITEM_CLASSES: Dict[EquipmentSlot, type] = {
+    EquipmentSlot.HEAD: HeadItem,
+    EquipmentSlot.CAPE: CapeItem,
+    EquipmentSlot.NECK: NeckItem,
+    EquipmentSlot.AMMO: AmmoItem,
+    EquipmentSlot.WEAPON: WeaponItem,
+    EquipmentSlot.BODY: BodyItem,
+    EquipmentSlot.SHIELD: ShieldItem,
+    EquipmentSlot.LEGS: LegsItem,
+    EquipmentSlot.HANDS: HandsItem,
+    EquipmentSlot.FEET: FeetItem,
+    EquipmentSlot.RING: RingItem,
+}
+
+
+def create_slot_item(slot: EquipmentSlot, **kwargs) -> SlotItem:
+    """Factory function to create the correct item type for a slot.
+
+    Args:
+        slot: The equipment slot.
+        **kwargs: Arguments passed to the item constructor.
+
+    Returns:
+        A slot-specific item instance.
+    """
+    item_class = SLOT_ITEM_CLASSES.get(slot, SlotItem)
+    return item_class(**kwargs)
 
 
 @dataclass
@@ -85,43 +219,57 @@ class EquipmentLoadout:
 
     This structure is compatible with RuneLite's Inventory Setups plugin.
     Equipment stats are automatically calculated from equipped items.
+    Each slot accepts only items of the correct type.
 
     Attributes:
         name: Loadout name (e.g., 'Vorkath DHCB').
-        head: Helmet/mask slot.
-        cape: Cape/cloak slot.
-        neck: Amulet/necklace slot.
-        ammo: Ammunition slot.
-        weapon: Main weapon slot.
-        body: Body armour slot.
-        shield: Shield/off-hand slot.
-        legs: Leg armour slot.
-        hands: Gloves slot.
-        feet: Boots slot.
-        ring: Ring slot.
+        head: Helmet/mask slot (HeadItem).
+        cape: Cape/cloak slot (CapeItem).
+        neck: Amulet/necklace slot (NeckItem).
+        ammo: Ammunition slot (AmmoItem).
+        weapon: Main weapon slot (WeaponItem).
+        body: Body armour slot (BodyItem).
+        shield: Shield/off-hand slot (ShieldItem).
+        legs: Leg armour slot (LegsItem).
+        hands: Gloves slot (HandsItem).
+        feet: Boots slot (FeetItem).
+        ring: Ring slot (RingItem).
     """
     name: str = ""
-    head: Optional[EquippedItem] = None
-    cape: Optional[EquippedItem] = None
-    neck: Optional[EquippedItem] = None
-    ammo: Optional[EquippedItem] = None
-    weapon: Optional[EquippedItem] = None
-    body: Optional[EquippedItem] = None
-    shield: Optional[EquippedItem] = None
-    legs: Optional[EquippedItem] = None
-    hands: Optional[EquippedItem] = None
-    feet: Optional[EquippedItem] = None
-    ring: Optional[EquippedItem] = None
+    head: Optional[HeadItem] = None
+    cape: Optional[CapeItem] = None
+    neck: Optional[NeckItem] = None
+    ammo: Optional[AmmoItem] = None
+    weapon: Optional[WeaponItem] = None
+    body: Optional[BodyItem] = None
+    shield: Optional[ShieldItem] = None
+    legs: Optional[LegsItem] = None
+    hands: Optional[HandsItem] = None
+    feet: Optional[FeetItem] = None
+    ring: Optional[RingItem] = None
 
-    def get_slot(self, slot: EquipmentSlot) -> Optional[EquippedItem]:
+    def get_slot(self, slot: EquipmentSlot) -> Optional[SlotItem]:
         """Get the item in a specific slot."""
         return getattr(self, slot.value, None)
 
-    def set_slot(self, slot: EquipmentSlot, item: Optional[EquippedItem]) -> None:
-        """Set an item in a specific slot."""
+    def set_slot(self, slot: EquipmentSlot, item: Optional[SlotItem]) -> None:
+        """Set an item in a specific slot.
+
+        Args:
+            slot: The equipment slot.
+            item: The item to equip (must match slot type or be None).
+
+        Raises:
+            TypeError: If item type doesn't match the slot.
+        """
+        if item is not None and item.SLOT != slot:
+            raise TypeError(
+                f"Cannot equip {type(item).__name__} in {slot.value} slot. "
+                f"Expected {SLOT_ITEM_CLASSES[slot].__name__}."
+            )
         setattr(self, slot.value, item)
 
-    def get_all_items(self) -> List[EquippedItem]:
+    def get_all_items(self) -> List[SlotItem]:
         """Get all equipped items (non-None slots)."""
         items = []
         for slot in EquipmentSlot:
@@ -142,6 +290,10 @@ class EquipmentLoadout:
             if item.stats:
                 total = total + item.stats
         return total
+
+    def is_two_handed(self) -> bool:
+        """Check if the equipped weapon is two-handed."""
+        return self.weapon is not None and self.weapon.is_two_handed
 
     @classmethod
     def from_dict(cls, data: Dict) -> "EquipmentLoadout":
@@ -172,7 +324,9 @@ class EquipmentLoadout:
             except ValueError:
                 continue
 
-            item = EquippedItem(
+            # Create the correct item type for this slot
+            item = create_slot_item(
+                slot,
                 name=item_data.get("name", "Unknown"),
                 item_id=item_data.get("id", 0),
             )
