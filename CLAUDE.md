@@ -50,12 +50,18 @@ python main.py optimize --objective permits --simulations 10
 
 **Combat DPS:**
 ```
-CombatSetup (stats, weapon, target, prayer, potion)
+CombatSetup (stats, weapon, target, prayer, potion, spell)
     ↓
 External loaders (optional): set_monster_loader(), set_weapon_loader()
     ↓
-CombatCalculator.calculate() → CombatResult (DPS, max hit, hit chance)
+CombatCalculator.calculate() → CombatResult (DPS, max hit, hit chance, spell_used)
 ```
+
+**Spell Autocast:**
+- Magic weapons automatically select the strongest spell they can autocast
+- Weapon → Spellbook registry in `equipment.py` (`_get_autocast_spellbooks()`)
+- Powered staves (Trident, Sang, Shadow) use built-in `base_magic_max_hit`
+- Harmonised Nightmare Staff: 4-tick with Standard spells, 5-tick with Ancients
 
 **External Data Integration:**
 - `data_loader/fetcher.py` downloads from GitHub raw URLs
@@ -80,4 +86,4 @@ CombatCalculator.calculate() → CombatResult (DPS, max hit, hit chance)
 After running `combat data fetch`:
 - 400+ monsters (45 bosses, dragons, demons, undead, etc.)
 - 993 weapons (melee, ranged, magic)
-- 42 combat spells (Standard and Ancient Magicks)
+- 45 combat spells (Standard, Ancient Magicks, and Arceuus)

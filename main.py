@@ -1238,6 +1238,29 @@ def cmd_combat_dps(args):
     def_reduction = min(1.0, max(0.0, def_reduction))
     magic_reduction = min(1.0, max(0.0, magic_reduction))
 
+    # For magic weapons without a built-in spell, auto-select best spell
+    selected_spell = None
+    from combat.equipment import CombatStyle, _get_best_autocast_spell, Weapon
+    from data_loader.spell_loader import Spellbook
+    if weapon.combat_style == CombatStyle.MAGIC and weapon.base_magic_max_hit == 0:
+        selected_spell = _get_best_autocast_spell(weapon.name, stats.magic)
+
+        # Harmonised Nightmare Staff: 4-tick attack speed for standard spells only
+        weapon_key = weapon.name.lower().replace(" ", "_").replace("'", "")
+        if (weapon_key == "harmonised_nightmare_staff" and
+                selected_spell is not None and
+                selected_spell.spellbook == Spellbook.STANDARD):
+            # Create a new weapon with 4-tick attack speed
+            weapon = Weapon(
+                name=weapon.name,
+                attack_speed=4,
+                attack_type=weapon.attack_type,
+                combat_style=weapon.combat_style,
+                stats=weapon.stats,
+                is_two_handed=weapon.is_two_handed,
+                base_magic_max_hit=weapon.base_magic_max_hit,
+            )
+
     # Set up combat
     setup = CombatSetup(
         stats=stats,
@@ -1256,6 +1279,8 @@ def cmd_combat_dps(args):
         # Target stat reductions
         target_defence_reduction=def_reduction,
         target_magic_reduction=magic_reduction,
+        # Autocast spell for magic weapons
+        spell=selected_spell,
     )
 
     # Calculate (with formula tracking if requested)
@@ -1287,6 +1312,8 @@ def cmd_combat_dps(args):
     print(f"Hit Chance: {result.hit_chance:.1%}")
     print(f"Attack Roll: {result.attack_roll:,}")
     print(f"Defence Roll: {result.defence_roll:,}")
+    if result.spell_used:
+        print(f"Spell: {result.spell_used}")
     print()
     print(f"Avg Kill Time: {kill_time:.1f} seconds")
 

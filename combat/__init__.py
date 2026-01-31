@@ -61,6 +61,7 @@ from .equipment import (
     list_ammo,
     AMMO,
     optimize_loadout,
+    optimize_loadout_dps,
     optimize_loadouts,
     calculate_optimization_score,
     extract_equippable_ids,
@@ -201,6 +202,7 @@ __all__ = [
     "AMMO",
     # Gear optimization
     "optimize_loadout",
+    "optimize_loadout_dps",
     "optimize_loadouts",
     "calculate_optimization_score",
     "extract_equippable_ids",

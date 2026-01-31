@@ -6,6 +6,10 @@ from typing import Dict, Optional, List, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from data_loader.item_loader import WeaponLoader, ItemLoader
+    from data_loader.spell_loader import Spell, Spellbook
+    from .entities import MonsterStats
+    from .simulation import CombatStats, CombatResult, PotionBoost
+    from .prayers import Prayer
 
 # External loader for dynamic weapon data
 _external_loader: Optional["WeaponLoader"] = None
@@ -974,7 +978,7 @@ WEAPONS: Dict[str, Weapon] = {
     ),
     "harmonised_nightmare_staff": Weapon(
         name="Harmonised nightmare staff",
-        attack_speed=4,  # Standard spells at 4 tick instead of 5
+        attack_speed=5,  # Default 5-tick; 4-tick with standard spells (handled in calculation)
         attack_type=AttackType.MAGIC,
         combat_style=CombatStyle.MAGIC,
         stats=EquipmentStats(magic_attack=16, magic_damage=0.15),
@@ -1171,6 +1175,119 @@ WEAPONS: Dict[str, Weapon] = {
         stats=EquipmentStats(magic_attack=17, magic_damage=0.10),
     ),
 }
+
+
+# =============================================================================
+# Autocast Spellbook Registry
+# =============================================================================
+# Maps weapon names (normalized) to the list of spellbooks they can autocast.
+# Powered staves (Trident, Sang, Shadow) are NOT in this registry - they use
+# their built-in spell via base_magic_max_hit.
+
+def _get_autocast_spellbooks() -> Dict[str, List["Spellbook"]]:
+    """Get the autocast spellbook registry.
+
+    Returns a dictionary mapping weapon names to lists of spellbooks they can
+    autocast. This is a function to avoid circular imports.
+    """
+    from data_loader.spell_loader import Spellbook
+
+    return {
+        # Standard only - Special spells
+        "ibans_staff": [Spellbook.STANDARD],
+
+        # Standard + Arceuus
+        "slayers_staff": [Spellbook.STANDARD, Spellbook.ARCEUUS],
+        "slayers_staff_e": [Spellbook.STANDARD, Spellbook.ARCEUUS],
+        "staff_of_the_dead": [Spellbook.STANDARD, Spellbook.ARCEUUS],
+        "toxic_staff_of_the_dead": [Spellbook.STANDARD, Spellbook.ARCEUUS],
+        "staff_of_light": [Spellbook.STANDARD],
+        "staff_of_balance": [Spellbook.STANDARD],
+
+        # Standard + Ancient
+        "ancient_staff": [Spellbook.STANDARD, Spellbook.ANCIENTS],
+        "master_wand": [Spellbook.STANDARD, Spellbook.ANCIENTS],
+        "kodai_wand": [Spellbook.STANDARD, Spellbook.ANCIENTS],
+        "nightmare_staff": [Spellbook.STANDARD, Spellbook.ANCIENTS],
+        "harmonised_nightmare_staff": [Spellbook.STANDARD, Spellbook.ANCIENTS],
+        "eldritch_nightmare_staff": [Spellbook.STANDARD, Spellbook.ANCIENTS],
+        "volatile_nightmare_staff": [Spellbook.STANDARD, Spellbook.ANCIENTS],
+
+        # All three spellbooks
+        "ahrims_staff": [Spellbook.STANDARD, Spellbook.ANCIENTS, Spellbook.ARCEUUS],
+        "blue_moon_spear": [Spellbook.STANDARD, Spellbook.ANCIENTS, Spellbook.ARCEUUS],
+
+        # Basic staves/wands (Standard elemental spells only)
+        "staff_of_air": [Spellbook.STANDARD],
+        "staff_of_water": [Spellbook.STANDARD],
+        "staff_of_earth": [Spellbook.STANDARD],
+        "staff_of_fire": [Spellbook.STANDARD],
+        "mystic_air_staff": [Spellbook.STANDARD],
+        "mystic_water_staff": [Spellbook.STANDARD],
+        "mystic_earth_staff": [Spellbook.STANDARD],
+        "mystic_fire_staff": [Spellbook.STANDARD],
+        "mud_battlestaff": [Spellbook.STANDARD],
+        "lava_battlestaff": [Spellbook.STANDARD],
+        "steam_battlestaff": [Spellbook.STANDARD],
+        "smoke_battlestaff": [Spellbook.STANDARD],
+        "mist_battlestaff": [Spellbook.STANDARD],
+        "dust_battlestaff": [Spellbook.STANDARD],
+    }
+
+
+def _get_best_autocast_spell(
+    weapon_name: str,
+    magic_level: int,
+    spellbook: "Spellbook" = None
+) -> Optional["Spell"]:
+    """Get the strongest spell a weapon can autocast at the given magic level.
+
+    For weapons that support autocasting, this returns the highest-damage spell
+    available based on:
+    1. The spellbooks the weapon can autocast
+    2. The player's magic level
+    3. An optional spellbook filter
+
+    Args:
+        weapon_name: Name of the weapon (normalized or display name).
+        magic_level: Player's magic level.
+        spellbook: Optional filter to a specific spellbook. If None, checks
+                   all spellbooks the weapon can autocast.
+
+    Returns:
+        The strongest available Spell, or None if:
+        - The weapon is a powered staff (uses built-in spell)
+        - The weapon cannot autocast any spells
+        - No spells are available at the player's magic level
+    """
+    from data_loader.spell_loader import Spellbook, get_strongest_spell
+
+    # Normalize weapon name
+    weapon_key = weapon_name.lower().replace(" ", "_").replace("'", "")
+
+    # Get spellbooks this weapon can autocast
+    autocast_registry = _get_autocast_spellbooks()
+    weapon_spellbooks = autocast_registry.get(weapon_key)
+
+    if weapon_spellbooks is None:
+        # Weapon not in registry - likely a powered staff or can't autocast
+        return None
+
+    # If a specific spellbook is requested, check if weapon supports it
+    if spellbook is not None:
+        if spellbook not in weapon_spellbooks:
+            return None
+        return get_strongest_spell(magic_level, spellbook)
+
+    # Find the strongest spell across all supported spellbooks
+    best_spell = None
+    for book in weapon_spellbooks:
+        spell = get_strongest_spell(magic_level, book)
+        if spell is not None:
+            if best_spell is None or spell.base_max_hit > best_spell.base_max_hit:
+                best_spell = spell
+
+    return best_spell
 
 
 # =============================================================================
@@ -1456,14 +1573,19 @@ def extract_equippable_ids(
     return list(item_ids)
 
 
-def format_loadout_summary(loadout: "EquipmentLoadout", width: int = 60) -> str:
+def format_loadout_summary(
+    loadout: "EquipmentLoadout",
+    combat_result: "CombatResult" = None,
+    width: int = 60
+) -> str:
     """Format a loadout's stats as a readable summary in an ASCII box.
 
     Displays equipment in a visual layout similar to the in-game
-    equipment screen.
+    equipment screen. Optionally includes DPS calculation results.
 
     Args:
         loadout: The equipment loadout to summarize.
+        combat_result: Optional CombatResult to display DPS info.
         width: Width of the box (default 60).
 
     Returns:
@@ -1578,6 +1700,20 @@ def format_loadout_summary(loadout: "EquipmentLoadout", width: int = 60) -> str:
     lines.append(line(f"  Ranged: {stats.ranged_attack:+4d}      Ranged: {stats.ranged_defence:+4d}      Prayer:     {stats.prayer:+4d}"))
     lines.append(line(f"  Magic:  {stats.magic_attack:+4d}      Magic:  {stats.magic_defence:+4d}"))
 
+    # DPS section (optional)
+    if combat_result:
+        lines.append(divider())
+        lines.append(line("  DPS CALCULATION"))
+        lines.append(divider())
+        lines.append(line(f"  DPS:        {combat_result.dps:.2f}"))
+        lines.append(line(f"  Max Hit:    {combat_result.max_hit}"))
+        lines.append(line(f"  Hit Chance: {combat_result.hit_chance:.1%}"))
+        lines.append(line(f"  Atk Speed:  {combat_result.attack_speed_ticks} ticks ({combat_result.attack_speed_seconds:.1f}s)"))
+        if combat_result.weapon_name:
+            lines.append(line(f"  Weapon:     {combat_result.weapon_name}"))
+        if combat_result.spell_used:
+            lines.append(line(f"  Spell:      {combat_result.spell_used}"))
+
     # Bottom border
     lines.append(f"+{'-' * (width - 2)}+")
 
@@ -1635,6 +1771,554 @@ def calculate_optimization_score(item_data: Dict, attack_type: AttackType) -> fl
         # Convert magic damage percentage to comparable value
         return equip.get("attack_magic", 0) + equip.get("magic_damage", 0) * 100
     return 0
+
+
+def optimize_loadout_dps(
+    available_item_ids: List[int],
+    target: "MonsterStats",
+    player_stats: "CombatStats",
+    item_loader: "ItemLoader",
+    prayer: "Prayer" = None,
+    potion: "PotionBoost" = None,
+    attack_style: AttackStyle = None,
+    on_slayer_task: bool = False,
+    spell: "Spell" = None,
+    spellbook: "Spellbook" = None,
+) -> tuple:
+    """Find optimal gear for maximum DPS against a specific target.
+
+    Uses a greedy slot-by-slot optimization approach:
+    1. Find the best weapon first (most impactful slot)
+    2. For each remaining slot, pick the item that maximizes DPS
+
+    This accounts for:
+    - Monster defences (different monsters weak to different styles)
+    - Special weapon effects (Dragon Hunter Lance vs dragons, etc.)
+    - Player stats, prayers, and potions
+    - Set bonuses and passive effects
+    - Autocast spell selection for magic weapons
+
+    Args:
+        available_item_ids: List of item IDs the player has access to.
+        target: The monster to optimize DPS against.
+        player_stats: Player's combat stats.
+        item_loader: ItemLoader instance with loaded items.json.
+        prayer: Prayer to use (defaults to best prayer for weapon style).
+        potion: Potion boost (defaults to best potion for weapon style).
+        attack_style: Attack style override (defaults to style matching weapon).
+        on_slayer_task: Whether on a slayer task for this monster.
+        spell: Explicit spell to use (for magic weapons). If None, auto-selects
+               the best spell the weapon can autocast.
+        spellbook: Restrict spell auto-selection to a specific spellbook.
+
+    Returns:
+        Tuple of (best_loadout, combat_result) where combat_result includes
+        DPS, max hit, hit chance, spell_used, etc.
+
+    Example:
+        >>> from data_loader import ItemLoader
+        >>> from combat import CombatStats, get_monster, PIETY, PotionBoost
+        >>> item_loader = ItemLoader()
+        >>> player_stats = CombatStats(attack=99, strength=99, defence=99)
+        >>> target = get_monster("vorkath")
+        >>> best_loadout, result = optimize_loadout_dps(
+        ...     available_item_ids=[26382, 27745, 22978],
+        ...     target=target,
+        ...     player_stats=player_stats,
+        ...     item_loader=item_loader,
+        ...     prayer=PIETY,
+        ... )
+        >>> print(f"DPS: {result.dps:.2f}")
+    """
+    from collections import defaultdict
+    from .simulation import CombatSetup, CombatCalculator, CombatStats, PotionBoost as PotBoost
+    from .prayers import Prayer as Pr, PIETY, RIGOUR, AUGURY
+    from .entities import MonsterStats
+
+    # Group items by slot
+    slot_items: Dict[EquipmentSlot, List[int]] = defaultdict(list)
+    for item_id in available_item_ids:
+        slot = item_loader.get_slot(item_id)
+        if slot is not None:
+            slot_items[slot].append(item_id)
+
+    # Phase 1: Find the best weapon
+    best_weapon_id = None
+    best_weapon_dps = -1.0
+    best_weapon_style = None
+
+    for item_id in slot_items.get(EquipmentSlot.WEAPON, []):
+        loadout = _create_loadout_with_weapon(item_id, item_loader)
+        if loadout.weapon is None:
+            continue
+
+        # Determine prayer and potion for this weapon's style
+        weapon_style = loadout.weapon.combat_style
+        test_prayer = prayer
+        test_potion = potion
+        test_attack_style = attack_style
+
+        if test_prayer is None:
+            if weapon_style == CombatStyle.MELEE:
+                test_prayer = PIETY
+            elif weapon_style == CombatStyle.RANGED:
+                test_prayer = RIGOUR
+            else:
+                test_prayer = AUGURY
+
+        if test_potion is None:
+            if weapon_style == CombatStyle.MELEE:
+                test_potion = PotBoost.super_combat()
+            elif weapon_style == CombatStyle.RANGED:
+                test_potion = PotBoost.divine_ranging()
+            else:
+                test_potion = PotBoost.saturated_heart()
+
+        if test_attack_style is None:
+            if weapon_style == CombatStyle.MELEE:
+                test_attack_style = AttackStyle.AGGRESSIVE
+            elif weapon_style == CombatStyle.RANGED:
+                test_attack_style = AttackStyle.RAPID
+            else:
+                test_attack_style = AttackStyle.AUTOCAST
+
+        result = _calculate_loadout_dps(
+            loadout, target, player_stats, item_loader,
+            test_prayer, test_potion, test_attack_style, on_slayer_task,
+            spell, spellbook
+        )
+
+        if result.dps > best_weapon_dps:
+            best_weapon_dps = result.dps
+            best_weapon_id = item_id
+            best_weapon_style = weapon_style
+
+    # If no weapon found, return empty result
+    if best_weapon_id is None:
+        empty_loadout = EquipmentLoadout(name="No weapons available")
+        from .simulation import CombatResult
+        return empty_loadout, CombatResult(
+            dps=0.0, max_hit=0, hit_chance=0.0, attack_roll=0, defence_roll=0
+        )
+
+    # Phase 2: Optimize other slots with best weapon locked in
+    current_loadout = _create_loadout_with_weapon(best_weapon_id, item_loader)
+    current_loadout.name = f"Optimized for {target.name}"
+
+    # Determine final prayer, potion, attack style based on best weapon
+    if prayer is None:
+        if best_weapon_style == CombatStyle.MELEE:
+            prayer = PIETY
+        elif best_weapon_style == CombatStyle.RANGED:
+            prayer = RIGOUR
+        else:
+            prayer = AUGURY
+
+    if potion is None:
+        if best_weapon_style == CombatStyle.MELEE:
+            potion = PotBoost.super_combat()
+        elif best_weapon_style == CombatStyle.RANGED:
+            potion = PotBoost.divine_ranging()
+        else:
+            potion = PotBoost.saturated_heart()
+
+    if attack_style is None:
+        if best_weapon_style == CombatStyle.MELEE:
+            attack_style = AttackStyle.AGGRESSIVE
+        elif best_weapon_style == CombatStyle.RANGED:
+            attack_style = AttackStyle.RAPID
+        else:
+            attack_style = AttackStyle.AUTOCAST
+
+    # Slot optimization order (weapon already done)
+    slot_order = [
+        EquipmentSlot.BODY,
+        EquipmentSlot.LEGS,
+        EquipmentSlot.HEAD,
+        EquipmentSlot.HANDS,
+        EquipmentSlot.FEET,
+        EquipmentSlot.CAPE,
+        EquipmentSlot.NECK,
+        EquipmentSlot.RING,
+        EquipmentSlot.SHIELD,
+        EquipmentSlot.AMMO,
+    ]
+
+    # Skip shield if weapon is two-handed
+    if current_loadout.is_two_handed():
+        slot_order = [s for s in slot_order if s != EquipmentSlot.SHIELD]
+
+    for slot in slot_order:
+        if slot not in slot_items or not slot_items[slot]:
+            continue
+
+        best_slot_dps = -1.0
+        best_slot_item_id = None
+        current_dps = _calculate_loadout_dps(
+            current_loadout, target, player_stats, item_loader,
+            prayer, potion, attack_style, on_slayer_task,
+            spell, spellbook
+        ).dps
+
+        for item_id in slot_items[slot]:
+            # Skip two-handed check for shield slot
+            if slot == EquipmentSlot.SHIELD and current_loadout.is_two_handed():
+                continue
+
+            test_loadout = _copy_loadout(current_loadout)
+            _add_item_to_loadout(test_loadout, item_id, item_loader)
+
+            result = _calculate_loadout_dps(
+                test_loadout, target, player_stats, item_loader,
+                prayer, potion, attack_style, on_slayer_task,
+                spell, spellbook
+            )
+
+            if result.dps > best_slot_dps:
+                best_slot_dps = result.dps
+                best_slot_item_id = item_id
+
+        # Only add item if it improves DPS (or if slot was empty)
+        if best_slot_item_id is not None and best_slot_dps >= current_dps:
+            _add_item_to_loadout(current_loadout, best_slot_item_id, item_loader)
+
+    # Calculate final result
+    final_result = _calculate_loadout_dps(
+        current_loadout, target, player_stats, item_loader,
+        prayer, potion, attack_style, on_slayer_task,
+        spell, spellbook
+    )
+
+    return current_loadout, final_result
+
+
+def _create_loadout_with_weapon(
+    weapon_id: int,
+    item_loader: "ItemLoader"
+) -> EquipmentLoadout:
+    """Create an empty loadout with just a weapon equipped.
+
+    Args:
+        weapon_id: The weapon item ID.
+        item_loader: ItemLoader for looking up item data.
+
+    Returns:
+        EquipmentLoadout with only the weapon slot filled.
+    """
+    loadout = EquipmentLoadout()
+
+    item_data = item_loader.get_item_data(weapon_id)
+    if not item_data:
+        return loadout
+
+    stats = item_loader.get_by_id(weapon_id) or EquipmentStats()
+    name = item_data.get("name", "")
+    weap = item_data.get("weapon") or {}
+    equip = item_data.get("equipment") or {}
+
+    # Determine attack type and combat style
+    attack_type = AttackType.SLASH
+    combat_style = CombatStyle.MELEE
+
+    if stats.ranged_attack > 0 and stats.ranged_attack >= stats.magic_attack:
+        attack_type = AttackType.RANGED
+        combat_style = CombatStyle.RANGED
+    elif stats.magic_attack > 0:
+        attack_type = AttackType.MAGIC
+        combat_style = CombatStyle.MAGIC
+    else:
+        # Pick best melee type
+        best = max(stats.stab_attack, stats.slash_attack, stats.crush_attack)
+        if best == stats.stab_attack:
+            attack_type = AttackType.STAB
+        elif best == stats.slash_attack:
+            attack_type = AttackType.SLASH
+        else:
+            attack_type = AttackType.CRUSH
+
+    # Check if this is a powered staff with a built-in spell max hit
+    # Look up in hardcoded WEAPONS dictionary first
+    weapon_key = name.lower().replace(" ", "_").replace("'", "")
+    base_magic_max_hit = 0
+    if weapon_key in WEAPONS:
+        base_magic_max_hit = WEAPONS[weapon_key].base_magic_max_hit
+
+    weapon_item = WeaponItem(
+        name=name,
+        item_id=weapon_id,
+        stats=stats,
+        attack_speed=weap.get("attack_speed", 4),
+        attack_type=attack_type,
+        combat_style=combat_style,
+        is_two_handed=equip.get("slot") == "2h",
+        base_magic_max_hit=base_magic_max_hit,
+    )
+
+    loadout.weapon = weapon_item
+    return loadout
+
+
+def _add_item_to_loadout(
+    loadout: EquipmentLoadout,
+    item_id: int,
+    item_loader: "ItemLoader"
+) -> None:
+    """Add an item to a loadout in-place.
+
+    Args:
+        loadout: The loadout to modify.
+        item_id: The item ID to add.
+        item_loader: ItemLoader for looking up item data.
+    """
+    slot = item_loader.get_slot(item_id)
+    if slot is None:
+        return
+
+    item_data = item_loader.get_item_data(item_id)
+    if not item_data:
+        return
+
+    stats = item_loader.get_by_id(item_id) or EquipmentStats()
+    name = item_data.get("name", "")
+
+    kwargs = {
+        "name": name,
+        "item_id": item_id,
+        "stats": stats,
+    }
+
+    item = create_slot_item(slot, **kwargs)
+    loadout.set_slot(slot, item)
+
+
+def _copy_loadout(loadout: EquipmentLoadout) -> EquipmentLoadout:
+    """Create a shallow copy of a loadout.
+
+    Args:
+        loadout: The loadout to copy.
+
+    Returns:
+        A new EquipmentLoadout with the same items.
+    """
+    new_loadout = EquipmentLoadout(name=loadout.name)
+    for slot in EquipmentSlot:
+        item = loadout.get_slot(slot)
+        if item is not None:
+            new_loadout.set_slot(slot, item)
+    return new_loadout
+
+
+def _detect_gear_modifiers(
+    loadout: EquipmentLoadout,
+    target: "MonsterStats"
+) -> GearModifiers:
+    """Detect special gear effects from equipped items.
+
+    Args:
+        loadout: The equipment loadout.
+        target: The target monster.
+
+    Returns:
+        GearModifiers with detected effects.
+    """
+    item_names = [name.lower() for name in loadout.get_item_names()]
+
+    # Void set detection
+    void_melee = _has_void_melee(item_names)
+    void_ranged = _has_void_ranged(item_names)
+    void_magic = _has_void_magic(item_names)
+    elite_void = _has_elite_void(item_names)
+
+    # Slayer helm detection
+    slayer_helm = any("slayer_helmet" in name or "black_mask" in name for name in item_names)
+    slayer_helm_imbued = any(
+        "slayer_helmet_(i)" in name or "slayer_helmet_i" in name or
+        "black_mask_(i)" in name or "black_mask_i" in name
+        for name in item_names
+    )
+
+    # Salve amulet detection (check if target is undead)
+    is_undead = target.is_undead if target else False
+    salve = any("salve_amulet" in name and "(e)" not in name and "ei" not in name for name in item_names)
+    salve_e = any("salve_amulet(e)" in name or "salve_amulet_e" in name for name in item_names)
+    salve_ei = any("salve_amulet(ei)" in name or "salve_amulet_ei" in name for name in item_names)
+
+    # Dragon hunter detection (check if target is dragon)
+    is_dragon = target.is_dragon if target else False
+    dhl = any("dragon_hunter_lance" in name for name in item_names)
+    dhcb = any("dragon_hunter_crossbow" in name for name in item_names)
+
+    # Set bonuses
+    inquisitor = _has_inquisitor_set(item_names)
+    obsidian = _has_obsidian_set(item_names)
+
+    return GearModifiers(
+        void_melee=void_melee,
+        void_ranged=void_ranged,
+        void_magic=void_magic,
+        elite_void=elite_void,
+        slayer_helm=slayer_helm,
+        slayer_helm_imbued=slayer_helm_imbued,
+        salve_amulet=salve and is_undead,
+        salve_amulet_e=salve_e and is_undead,
+        salve_amulet_ei=salve_ei and is_undead,
+        dragon_hunter_lance=dhl and is_dragon,
+        dragon_hunter_crossbow=dhcb and is_dragon,
+        inquisitor_set=inquisitor,
+        obsidian_set=obsidian,
+    )
+
+
+def _has_void_melee(item_names: List[str]) -> bool:
+    """Check for melee void set."""
+    has_helm = any("void_melee_helm" in name for name in item_names)
+    has_top = any("void_knight_top" in name or "elite_void_top" in name for name in item_names)
+    has_robe = any("void_knight_robe" in name or "elite_void_robe" in name for name in item_names)
+    has_gloves = any("void_knight_gloves" in name for name in item_names)
+    return has_helm and has_top and has_robe and has_gloves
+
+
+def _has_void_ranged(item_names: List[str]) -> bool:
+    """Check for ranged void set."""
+    has_helm = any("void_ranger_helm" in name for name in item_names)
+    has_top = any("void_knight_top" in name or "elite_void_top" in name for name in item_names)
+    has_robe = any("void_knight_robe" in name or "elite_void_robe" in name for name in item_names)
+    has_gloves = any("void_knight_gloves" in name for name in item_names)
+    return has_helm and has_top and has_robe and has_gloves
+
+
+def _has_void_magic(item_names: List[str]) -> bool:
+    """Check for magic void set."""
+    has_helm = any("void_mage_helm" in name for name in item_names)
+    has_top = any("void_knight_top" in name or "elite_void_top" in name for name in item_names)
+    has_robe = any("void_knight_robe" in name or "elite_void_robe" in name for name in item_names)
+    has_gloves = any("void_knight_gloves" in name for name in item_names)
+    return has_helm and has_top and has_robe and has_gloves
+
+
+def _has_elite_void(item_names: List[str]) -> bool:
+    """Check for elite void pieces."""
+    has_elite_top = any("elite_void_top" in name for name in item_names)
+    has_elite_robe = any("elite_void_robe" in name for name in item_names)
+    return has_elite_top and has_elite_robe
+
+
+def _has_inquisitor_set(item_names: List[str]) -> bool:
+    """Check for full Inquisitor's set."""
+    has_helm = any("inquisitors_great_helm" in name or "inquisitor's_great_helm" in name for name in item_names)
+    has_body = any("inquisitors_hauberk" in name or "inquisitor's_hauberk" in name for name in item_names)
+    has_legs = any("inquisitors_plateskirt" in name or "inquisitor's_plateskirt" in name for name in item_names)
+    return has_helm and has_body and has_legs
+
+
+def _has_obsidian_set(item_names: List[str]) -> bool:
+    """Check for full Obsidian armour set with obsidian weapon."""
+    has_helm = any("obsidian_helmet" in name for name in item_names)
+    has_body = any("obsidian_platebody" in name for name in item_names)
+    has_legs = any("obsidian_platelegs" in name for name in item_names)
+    has_weapon = any(
+        "toktz" in name or "tzhaar" in name or "obsidian" in name
+        for name in item_names
+        if "helmet" not in name and "platebody" not in name and "platelegs" not in name
+    )
+    return has_helm and has_body and has_legs and has_weapon
+
+
+def _calculate_loadout_dps(
+    loadout: EquipmentLoadout,
+    target: "MonsterStats",
+    player_stats: "CombatStats",
+    item_loader: "ItemLoader",
+    prayer: "Prayer",
+    potion: "PotionBoost",
+    attack_style: AttackStyle,
+    on_slayer_task: bool,
+    spell: "Spell" = None,
+    spellbook: "Spellbook" = None,
+) -> "CombatResult":
+    """Calculate DPS for a loadout against a target.
+
+    Args:
+        loadout: The equipment loadout.
+        target: The target monster.
+        player_stats: Player's combat stats.
+        item_loader: ItemLoader (unused but kept for consistency).
+        prayer: Prayer to use.
+        potion: Potion boost.
+        attack_style: Attack style.
+        on_slayer_task: Whether on slayer task.
+        spell: Explicit spell override for magic weapons.
+        spellbook: Restrict autocast selection to a specific spellbook.
+
+    Returns:
+        CombatResult with DPS and other stats.
+    """
+    from .simulation import CombatSetup, CombatCalculator, CombatResult
+    from data_loader.spell_loader import Spellbook
+
+    if loadout.weapon is None:
+        return CombatResult(
+            dps=0.0, max_hit=0, hit_chance=0.0, attack_roll=0, defence_roll=0
+        )
+
+    weapon_name = loadout.weapon.name
+    weapon_key = weapon_name.lower().replace(" ", "_").replace("'", "")
+    attack_speed = loadout.weapon.attack_speed
+    base_magic_max_hit = getattr(loadout.weapon, 'base_magic_max_hit', 0)
+
+    # For magic weapons without a built-in spell (not powered staves),
+    # auto-select the best spell if none is explicitly provided
+    selected_spell = spell
+    if loadout.weapon.combat_style == CombatStyle.MAGIC and base_magic_max_hit == 0:
+        if selected_spell is None:
+            selected_spell = _get_best_autocast_spell(
+                weapon_name,
+                player_stats.magic,
+                spellbook
+            )
+
+        # Harmonised Nightmare Staff: 4-tick attack speed for standard spells
+        if (weapon_key == "harmonised_nightmare_staff" and
+                selected_spell is not None and
+                selected_spell.spellbook == Spellbook.STANDARD):
+            attack_speed = 4
+
+    # Build Weapon object from WeaponItem
+    weapon = Weapon(
+        name=loadout.weapon.name,
+        attack_speed=attack_speed,
+        attack_type=loadout.weapon.attack_type,
+        combat_style=loadout.weapon.combat_style,
+        stats=EquipmentStats(),  # Don't include weapon stats here - they're added separately
+        is_two_handed=loadout.weapon.is_two_handed,
+        base_magic_max_hit=base_magic_max_hit,
+    )
+
+    # Get total equipment stats (includes weapon stats)
+    equipment_stats = loadout.get_total_stats()
+
+    # Detect gear modifiers
+    gear_modifiers = _detect_gear_modifiers(loadout, target)
+
+    # Get item names for effect detection
+    equipped_items = loadout.get_item_names()
+
+    setup = CombatSetup(
+        stats=player_stats,
+        weapon=weapon,
+        equipment_stats=equipment_stats,
+        gear_modifiers=gear_modifiers,
+        attack_style=attack_style,
+        prayer=prayer,
+        potion=potion,
+        target=target,
+        on_slayer_task=on_slayer_task,
+        equipped_items=equipped_items,
+        spell=selected_spell,
+    )
+
+    calculator = CombatCalculator(setup, use_effects=False)
+    return calculator.calculate()
 
 
 def optimize_loadout(

@@ -9,6 +9,7 @@ class Spellbook(Enum):
     """Spellbook types."""
     STANDARD = "standard"
     ANCIENTS = "ancients"
+    ARCEUUS = "arceuus"
 
 
 @dataclass
@@ -100,8 +101,15 @@ ANCIENT_SPELLS: Dict[str, Spell] = {
     "ice_barrage": Spell("Ice Barrage", Spellbook.ANCIENTS, 94, 30, is_multi_target=True),
 }
 
+# Arceuus Spellbook combat spells
+ARCEUUS_SPELLS: Dict[str, Spell] = {
+    "ghostly_grasp": Spell("Ghostly Grasp", Spellbook.ARCEUUS, 35, 12),
+    "skeletal_grasp": Spell("Skeletal Grasp", Spellbook.ARCEUUS, 56, 17),
+    "undead_grasp": Spell("Undead Grasp", Spellbook.ARCEUUS, 79, 24),
+}
+
 # Combined spell dictionary
-SPELLS: Dict[str, Spell] = {**STANDARD_SPELLS, **ANCIENT_SPELLS}
+SPELLS: Dict[str, Spell] = {**STANDARD_SPELLS, **ANCIENT_SPELLS, **ARCEUUS_SPELLS}
 
 
 def get_spell(name: str) -> Optional[Spell]:
@@ -132,6 +140,8 @@ def list_spells(spellbook: Optional[Spellbook] = None) -> List[str]:
         return sorted(STANDARD_SPELLS.keys())
     elif spellbook == Spellbook.ANCIENTS:
         return sorted(ANCIENT_SPELLS.keys())
+    elif spellbook == Spellbook.ARCEUUS:
+        return sorted(ARCEUUS_SPELLS.keys())
     return []
 
 
@@ -166,6 +176,8 @@ def get_strongest_spell(magic_level: int, spellbook: Optional[Spellbook] = None)
         source = STANDARD_SPELLS
     elif spellbook == Spellbook.ANCIENTS:
         source = ANCIENT_SPELLS
+    elif spellbook == Spellbook.ARCEUUS:
+        source = ARCEUUS_SPELLS
     else:
         return None
 

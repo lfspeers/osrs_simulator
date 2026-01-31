@@ -40,6 +40,7 @@ from .entities import MonsterStats, get_monster, MONSTERS
 from .prayers import Prayer, get_prayer
 from .effects import ResolvedModifiers, ActiveEffect
 from .effect_engine import EffectEngine, CombatContext, format_active_effects
+from data_loader.spell_loader import Spell
 
 
 @dataclass
@@ -136,6 +137,9 @@ class CombatSetup:
     target_defence_reduction: float = 0.0  # 0.0-1.0, e.g., 0.3 for one DWH spec
     target_magic_reduction: float = 0.0    # 0.0-1.0, for vulnerability etc.
 
+    # Spell for autocast magic weapons (non-powered staves)
+    spell: Optional[Spell] = None
+
     def __post_init__(self):
         # If weapon provided, add its stats to equipment stats
         if self.weapon:
@@ -165,6 +169,9 @@ class CombatResult:
 
     # Active effects (populated when use_effects=True)
     active_effects: Optional[ResolvedModifiers] = None
+
+    # Spell used (for autocast magic weapons)
+    spell_used: Optional[str] = None
 
     # Derived values
     @property
@@ -613,7 +620,16 @@ class CombatCalculator:
         atk_roll = attack_roll(eff_magic, magic_attack_bonus, accuracy_mult)
 
         # Max hit from spell/staff
-        base_max = weapon.base_magic_max_hit
+        # Priority: 1) Explicit spell, 2) Powered staff built-in, 3) Zero (no spell)
+        spell_used = None
+        if setup.spell:
+            base_max = setup.spell.base_max_hit
+            spell_used = setup.spell.name
+        elif weapon.base_magic_max_hit > 0:
+            base_max = weapon.base_magic_max_hit  # Powered staff (Trident, Sang, Shadow)
+        else:
+            base_max = 0  # No spell configured
+
         magic_damage_bonus = setup.equipment_stats.magic_damage
         max_dmg = max_hit_magic(base_max, magic_damage_bonus, damage_mult * void_damage)
 
@@ -685,6 +701,7 @@ class CombatCalculator:
             attack_speed_ticks=attack_speed,
             formula_breakdown=breakdown,
             active_effects=modifiers if self.use_effects else None,
+            spell_used=spell_used,
         )
 
 
@@ -787,6 +804,12 @@ def quick_dps(
     else:
         style = AttackStyle.AUTOCAST
 
+    # For magic weapons without a built-in spell, auto-select best spell
+    selected_spell = None
+    if weapon.combat_style == CombatStyle.MAGIC and weapon.base_magic_max_hit == 0:
+        from .equipment import _get_best_autocast_spell
+        selected_spell = _get_best_autocast_spell(weapon.name, magic_level)
+
     stats = CombatStats(
         attack=attack_level,
         strength=strength_level,
@@ -802,6 +825,7 @@ def quick_dps(
         potion=potion,
         target=monster,
         on_slayer_task=on_slayer_task,
+        spell=selected_spell,
     )
 
     calculator = CombatCalculator(setup)
