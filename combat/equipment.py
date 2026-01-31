@@ -5,7 +5,7 @@ from enum import Enum, auto
 from typing import Dict, Optional, List, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from data_loader.item_loader import WeaponLoader
+    from data_loader.item_loader import WeaponLoader, ItemLoader
 
 # External loader for dynamic weapon data
 _external_loader: Optional["WeaponLoader"] = None
@@ -313,22 +313,34 @@ class EquipmentLoadout:
         return self.weapon is not None and self.weapon.is_two_handed
 
     @classmethod
-    def from_dict(cls, data: Dict) -> "EquipmentLoadout":
+    def from_dict(
+        cls,
+        data: Dict,
+        item_loader: "ItemLoader" = None
+    ) -> "EquipmentLoadout":
         """Create loadout from a dictionary (e.g., RuneLite export).
 
-        Supports two formats:
+        Supports multiple formats:
 
-        1. RuneLite Inventory Setups format (positional array):
+        1. RuneLite Inventory Setups plugin format (nested):
+        {
+            "setup": {
+                "name": "Setup Name",
+                "eq": [{"id": 12345}, {"id": 67890}, null, ...]
+            }
+        }
+
+        2. Simple positional array format:
         {
             "name": "Setup Name",
             "equipment": [
-                {"id": 12345, "name": "Item Name", "quantity": 1},  // index 0 = head
-                {"id": -1, "name": "", "quantity": 0},              // index 1 = cape (empty)
+                {"id": 12345, "name": "Item Name", "quantity": 1},
+                {"id": -1, "name": "", "quantity": 0},
                 ...
             ]
         }
 
-        2. Explicit slot format:
+        3. Explicit slot format:
         {
             "name": "Setup Name",
             "equipment": [
@@ -336,9 +348,25 @@ class EquipmentLoadout:
                 ...
             ]
         }
-        """
-        loadout = cls(name=data.get("name", ""))
 
+        Args:
+            data: Dictionary containing equipment data.
+            item_loader: Optional ItemLoader to auto-populate equipment stats
+                        from items.json using item IDs. Required for format 1
+                        to determine item slots and names.
+
+        Returns:
+            EquipmentLoadout with items (and stats if item_loader provided).
+        """
+        # Handle nested RuneLite Inventory Setups format: {"setup": {"eq": [...], "name": ...}}
+        if "setup" in data:
+            setup = data["setup"]
+            name = setup.get("name", "")
+            equipment_list = setup.get("eq", [])
+            # This format requires item_loader to determine slots
+            return cls._from_id_list(equipment_list, name, item_loader)
+
+        loadout = cls(name=data.get("name", ""))
         equipment_list = data.get("equipment", [])
 
         # Detect format: if first item has "slot" key, use explicit format
@@ -368,10 +396,16 @@ class EquipmentLoadout:
                 if item_id == -1 or not item_name:
                     continue
 
+                # Look up stats from database if loader provided
+                stats = EquipmentStats()
+                if item_loader and item_id > 0:
+                    stats = item_loader.get_by_id(item_id) or EquipmentStats()
+
                 item = create_slot_item(
                     slot,
                     name=item_name,
                     item_id=item_id,
+                    stats=stats,
                 )
                 loadout.set_slot(slot, item)
         else:
@@ -389,28 +423,122 @@ class EquipmentLoadout:
                     continue
 
                 slot = RUNELITE_SLOT_ORDER[index]
+
+                # Look up stats from database if loader provided
+                stats = EquipmentStats()
+                if item_loader and item_id > 0:
+                    stats = item_loader.get_by_id(item_id) or EquipmentStats()
+
                 item = create_slot_item(
                     slot,
                     name=item_name,
                     item_id=item_id,
+                    stats=stats,
                 )
                 loadout.set_slot(slot, item)
 
         return loadout
 
     @classmethod
-    def from_runelite_json(cls, json_str: str) -> "EquipmentLoadout":
+    def _from_id_list(
+        cls,
+        id_list: List,
+        name: str,
+        item_loader: "ItemLoader"
+    ) -> "EquipmentLoadout":
+        """Create loadout from a list of item IDs (RuneLite eq format).
+
+        This method looks up each item's slot from the database, filtering
+        out non-equipment items automatically.
+
+        Args:
+            id_list: List of dicts with "id" key, or None for empty slots.
+            name: Loadout name.
+            item_loader: ItemLoader instance (required for slot/name lookups).
+
+        Returns:
+            EquipmentLoadout with equipment items only.
+        """
+        loadout = cls(name=name)
+
+        if not item_loader:
+            # Can't determine slots without item_loader
+            return loadout
+
+        for item_data in id_list:
+            if not item_data:
+                continue
+
+            item_id = item_data.get("id", 0)
+            if item_id <= 0:
+                continue
+
+            # Look up the item's slot from database
+            slot = item_loader.get_slot(item_id)
+            if slot is None:
+                # Not an equipment item, skip it
+                continue
+
+            # Get item name and stats from database
+            item_name = item_loader.get_name(item_id) or f"Item {item_id}"
+            stats = item_loader.get_by_id(item_id) or EquipmentStats()
+
+            # Build kwargs for the slot item
+            kwargs = {
+                "name": item_name,
+                "item_id": item_id,
+                "stats": stats,
+            }
+
+            # Add weapon-specific attributes if this is a weapon slot
+            if slot == EquipmentSlot.WEAPON:
+                attack_speed = item_loader.get_attack_speed(item_id)
+                if attack_speed:
+                    kwargs["attack_speed"] = attack_speed
+                kwargs["is_two_handed"] = item_loader.is_two_handed(item_id)
+
+                # Determine combat style from stats
+                if stats.ranged_attack > 0 and stats.ranged_attack >= stats.magic_attack:
+                    kwargs["attack_type"] = AttackType.RANGED
+                    kwargs["combat_style"] = CombatStyle.RANGED
+                elif stats.magic_attack > 0:
+                    kwargs["attack_type"] = AttackType.MAGIC
+                    kwargs["combat_style"] = CombatStyle.MAGIC
+                else:
+                    # Pick best melee type
+                    best = max(stats.stab_attack, stats.slash_attack, stats.crush_attack)
+                    if best == stats.stab_attack:
+                        kwargs["attack_type"] = AttackType.STAB
+                    elif best == stats.slash_attack:
+                        kwargs["attack_type"] = AttackType.SLASH
+                    else:
+                        kwargs["attack_type"] = AttackType.CRUSH
+                    kwargs["combat_style"] = CombatStyle.MELEE
+
+            item = create_slot_item(slot, **kwargs)
+            loadout.set_slot(slot, item)
+
+        return loadout
+
+    @classmethod
+    def from_runelite_json(
+        cls,
+        json_str: str,
+        item_loader: "ItemLoader" = None
+    ) -> "EquipmentLoadout":
         """Create loadout from RuneLite Inventory Setups JSON string.
 
         Args:
             json_str: JSON string exported from RuneLite.
+            item_loader: Optional ItemLoader to auto-populate equipment stats
+                        from items.json using item IDs.
 
         Returns:
-            EquipmentLoadout instance.
+            EquipmentLoadout instance with stats (if item_loader provided).
         """
         import json
         data = json.loads(json_str)
-        return cls.from_dict(data)
+        return cls.from_dict(data, item_loader=item_loader)
 
     def to_dict(self) -> Dict:
         """Export loadout to dictionary format."""
@@ -1284,3 +1412,323 @@ def list_weapons(combat_style: Optional[CombatStyle] = None) -> List[str]:
             weapons.update(_external_loader.list_by_style(combat_style))
 
     return sorted(weapons)
+
+
+def extract_equippable_ids(
+    data: Dict,
+    item_loader: "ItemLoader"
+) -> List[int]:
+    """Extract all equippable item IDs from a RuneLite setup.
+
+    Parses both equipped items (eq) and inventory items (inv), returning
+    only items that are actually equippable.
+
+    Args:
+        data: RuneLite setup dictionary (with "setup" key or raw format).
+        item_loader: ItemLoader instance for checking if items are equippable.
+
+    Returns:
+        List of unique equippable item IDs.
+    """
+    item_ids = set()
+
+    # Handle nested format
+    if "setup" in data:
+        setup = data["setup"]
+        arrays_to_check = [
+            setup.get("eq", []),
+            setup.get("inv", []),
+        ]
+    else:
+        arrays_to_check = [data.get("equipment", [])]
+
+    for item_list in arrays_to_check:
+        for item_data in item_list:
+            if not item_data:
+                continue
+            item_id = item_data.get("id", 0)
+            if item_id <= 0:
+                continue
+            # Only include if it's equippable
+            if item_loader.get_slot(item_id) is not None:
+                item_ids.add(item_id)
+
+    return list(item_ids)
+
+
+def format_loadout_summary(loadout: "EquipmentLoadout", width: int = 60) -> str:
+    """Format a loadout's stats as a readable summary in an ASCII box.
+
+    Displays equipment in a visual layout similar to the in-game
+    equipment screen.
+
+    Args:
+        loadout: The equipment loadout to summarize.
+        width: Width of the box (default 60).
+
+    Returns:
+        Formatted string with equipment and stats in an ASCII box.
+    """
+    inner = width - 4  # Account for "| " and " |"
+
+    def line(text: str) -> str:
+        return f"| {text:<{inner}} |"
+
+    def center_line(text: str) -> str:
+        return f"| {text:^{inner}} |"
+
+    def divider() -> str:
+        return f"+{'-' * (width - 2)}+"
+
+    def get_item_name(slot: EquipmentSlot, max_len: int = 14) -> str:
+        item = loadout.get_slot(slot)
+        if item:
+            name = item.name
+            if len(name) > max_len:
+                return name[:max_len-1] + "."
+            return name
+        return ""
+
+    def slot_box(slot: EquipmentSlot) -> str:
+        """Create a mini box for a slot."""
+        name = get_item_name(slot, 14)
+        return f"[{name:^14}]"
+
+    def empty_box() -> str:
+        return " " * 16
+
+    lines = []
+
+    # Top border with title
+    title = f" {loadout.name or 'Loadout'} "
+    padding = width - 2 - len(title)
+    left_pad = padding // 2
+    right_pad = padding - left_pad
+    lines.append(f"+{'-' * left_pad}{title}{'-' * right_pad}+")
+
+    # Equipment visual layout (like in-game)
+    # Row 1: Head (center)
+    head = slot_box(EquipmentSlot.HEAD)
+    lines.append(center_line(head))
+
+    # Row 2: Cape, Neck, Ammo
+    cape = slot_box(EquipmentSlot.CAPE)
+    neck = slot_box(EquipmentSlot.NECK)
+    ammo = slot_box(EquipmentSlot.AMMO)
+    row2 = f"{cape}  {neck}  {ammo}"
+    lines.append(center_line(row2))
+
+    # Row 3: Weapon, Body, Shield
+    weapon = slot_box(EquipmentSlot.WEAPON)
+    body = slot_box(EquipmentSlot.BODY)
+    shield = slot_box(EquipmentSlot.SHIELD)
+    row3 = f"{weapon}  {body}  {shield}"
+    lines.append(center_line(row3))
+
+    # Row 4: Legs (center)
+    legs = slot_box(EquipmentSlot.LEGS)
+    row4 = f"{empty_box()}  {legs}  {empty_box()}"
+    lines.append(center_line(row4))
+
+    # Row 5: Hands, Feet
+    hands = slot_box(EquipmentSlot.HANDS)
+    feet = slot_box(EquipmentSlot.FEET)
+    row5 = f"{hands}  {empty_box()}  {feet}"
+    lines.append(center_line(row5))
+
+    # Row 6: Ring (center)
+    ring = slot_box(EquipmentSlot.RING)
+    row6 = f"{empty_box()}  {ring}  {empty_box()}"
+    lines.append(center_line(row6))
+
+    # Equipment list (full names)
+    lines.append(divider())
+    lines.append(line("  EQUIPMENT LIST"))
+    lines.append(divider())
+
+    slot_order = [
+        (EquipmentSlot.HEAD, "Head"),
+        (EquipmentSlot.CAPE, "Cape"),
+        (EquipmentSlot.NECK, "Neck"),
+        (EquipmentSlot.AMMO, "Ammo"),
+        (EquipmentSlot.WEAPON, "Weapon"),
+        (EquipmentSlot.BODY, "Body"),
+        (EquipmentSlot.SHIELD, "Shield"),
+        (EquipmentSlot.LEGS, "Legs"),
+        (EquipmentSlot.HANDS, "Hands"),
+        (EquipmentSlot.FEET, "Feet"),
+        (EquipmentSlot.RING, "Ring"),
+    ]
+
+    for slot, slot_name in slot_order:
+        item = loadout.get_slot(slot)
+        if item:
+            lines.append(line(f"  {slot_name:<7} {item.name}"))
+
+    # Stats section
+    stats = loadout.get_total_stats()
+    lines.append(divider())
+
+    # Headers
+    lines.append(line("  ATTACK          DEFENCE          OTHER"))
+    lines.append(divider())
+    lines.append(line(f"  Stab:   {stats.stab_attack:+4d}      Stab:   {stats.stab_defence:+4d}      Melee Str:  {stats.melee_strength:+4d}"))
+    lines.append(line(f"  Slash:  {stats.slash_attack:+4d}      Slash:  {stats.slash_defence:+4d}      Ranged Str: {stats.ranged_strength:+4d}"))
+    lines.append(line(f"  Crush:  {stats.crush_attack:+4d}      Crush:  {stats.crush_defence:+4d}      Magic Dmg:  {stats.magic_damage:+.1%}"))
+    lines.append(line(f"  Ranged: {stats.ranged_attack:+4d}      Ranged: {stats.ranged_defence:+4d}      Prayer:     {stats.prayer:+4d}"))
+    lines.append(line(f"  Magic:  {stats.magic_attack:+4d}      Magic:  {stats.magic_defence:+4d}"))
+
+    # Bottom border
+    lines.append(f"+{'-' * (width - 2)}+")
+
+    return "\n".join(lines)
+
+
+def optimize_loadouts(
+    available_item_ids: List[int],
+    attack_types: List[AttackType],
+    item_loader: "ItemLoader",
+    exclude_slots: List[EquipmentSlot] = None,
+) -> Dict[AttackType, "EquipmentLoadout"]:
+    """Find optimal gear for multiple attack styles.
+
+    Args:
+        available_item_ids: List of item IDs the player has access to.
+        attack_types: List of attack types to optimize for.
+        item_loader: ItemLoader instance with loaded items.json.
+        exclude_slots: Slots to leave empty.
+
+    Returns:
+        Dictionary mapping each attack type to its optimal loadout.
+    """
+    results = {}
+    for attack_type in attack_types:
+        results[attack_type] = optimize_loadout(
+            available_item_ids, attack_type, item_loader, exclude_slots
+        )
+    return results
+
+
+def calculate_optimization_score(item_data: Dict, attack_type: AttackType) -> float:
+    """Calculate optimization score for an item based on attack type.
+
+    The score combines attack bonus with strength bonus for the given style.
+
+    Args:
+        item_data: Full item data dictionary from items.json.
+        attack_type: The attack type to optimize for.
+
+    Returns:
+        Optimization score (higher is better).
+    """
+    equip = item_data.get("equipment") or {}
+
+    if attack_type == AttackType.STAB:
+        return equip.get("attack_stab", 0) + equip.get("melee_strength", 0)
+    elif attack_type == AttackType.SLASH:
+        return equip.get("attack_slash", 0) + equip.get("melee_strength", 0)
+    elif attack_type == AttackType.CRUSH:
+        return equip.get("attack_crush", 0) + equip.get("melee_strength", 0)
+    elif attack_type == AttackType.RANGED:
+        return equip.get("attack_ranged", 0) + equip.get("ranged_strength", 0)
+    elif attack_type == AttackType.MAGIC:
+        # Convert magic damage percentage to comparable value
+        return equip.get("attack_magic", 0) + equip.get("magic_damage", 0) * 100
+    return 0
+
+
+def optimize_loadout(
+    available_item_ids: List[int],
+    attack_type: AttackType,
+    item_loader: "ItemLoader",
+    exclude_slots: List[EquipmentSlot] = None,
+) -> EquipmentLoadout:
+    """Find optimal gear from available items for a given attack style.
+
+    For each equipment slot, selects the item with the highest combined
+    attack and strength bonus for the specified attack type.
+
+    Args:
+        available_item_ids: List of item IDs the player has access to.
+        attack_type: The attack type to optimize for (STAB, SLASH, CRUSH, RANGED, MAGIC).
+        item_loader: ItemLoader instance with loaded items.json.
+        exclude_slots: Slots to leave empty (e.g., shield for 2H weapons).
+
+    Returns:
+        EquipmentLoadout with optimal items for each slot.
+
+    Example:
+        >>> item_loader = ItemLoader()
+        >>> my_items = [26382, 27745, 27748, 24423]  # Crystal armor pieces
+        >>> optimal = optimize_loadout(my_items, AttackType.RANGED, item_loader)
+        >>> print(f"Total ranged attack: {optimal.get_total_stats().ranged_attack}")
+    """
+    from collections import defaultdict
+
+    exclude_slots = exclude_slots or []
+
+    # Group items by slot with their scores
+    # Dict[slot, List[Tuple[item_id, item_data, score]]]
+    slot_candidates: Dict[EquipmentSlot, List] = defaultdict(list)
+
+    for item_id in available_item_ids:
+        item_data = item_loader.get_item_data(item_id)
+        if not item_data:
+            continue
+
+        # Skip non-equipable items
+        if not item_data.get("equipable_by_player"):
+            continue
+
+        slot = item_loader.get_slot(item_id)
+        if slot is None or slot in exclude_slots:
+            continue
+
+        # Calculate score for this attack type
+        score = calculate_optimization_score(item_data, attack_type)
+        slot_candidates[slot].append((item_id, item_data, score))
+
+    # Build the loadout by selecting the best item for each slot
+    loadout = EquipmentLoadout(name=f"Optimized ({attack_type.value})")
+
+    for slot in EquipmentSlot:
+        if slot not in slot_candidates or slot in exclude_slots:
+            continue
+
+        # Sort by score descending, pick the best
+        candidates = sorted(slot_candidates[slot], key=lambda x: x[2], reverse=True)
+        if not candidates:
+            continue
+
+        best_id, best_data, _ = candidates[0]
+        stats = item_loader.get_by_id(best_id) or EquipmentStats()
+
+        # Build kwargs for the slot item
+        kwargs = {
+            "name": best_data.get("name", ""),
+            "item_id": best_id,
+            "stats": stats,
+        }
+
+        # Add weapon-specific attributes if this is a weapon slot
+        if slot == EquipmentSlot.WEAPON:
+            weap = best_data.get("weapon") or {}
+            kwargs["attack_speed"] = weap.get("attack_speed", 4)
+            kwargs["is_two_handed"] = item_loader.is_two_handed(best_id)
+
+            # Determine attack type and combat style
+            equip = best_data.get("equipment") or {}
+            if equip.get("attack_ranged", 0) > 0:
+                kwargs["attack_type"] = AttackType.RANGED
+                kwargs["combat_style"] = CombatStyle.RANGED
+            elif equip.get("attack_magic", 0) > 0:
+                kwargs["attack_type"] = AttackType.MAGIC
+                kwargs["combat_style"] = CombatStyle.MAGIC
+            else:
+                kwargs["attack_type"] = attack_type
+                kwargs["combat_style"] = CombatStyle.MELEE
+
+        item = create_slot_item(slot, **kwargs)
+        loadout.set_slot(slot, item)
+
+    return loadout

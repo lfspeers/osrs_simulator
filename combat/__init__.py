@@ -60,6 +60,11 @@ from .equipment import (
     get_ammo,
     list_ammo,
     AMMO,
+    optimize_loadout,
+    optimize_loadouts,
+    calculate_optimization_score,
+    extract_equippable_ids,
+    format_loadout_summary,
 )
 
 from .prayers import (
@@ -194,6 +199,12 @@ __all__ = [
     "get_ammo",
     "list_ammo",
     "AMMO",
+    # Gear optimization
+    "optimize_loadout",
+    "optimize_loadouts",
+    "calculate_optimization_score",
+    "extract_equippable_ids",
+    "format_loadout_summary",
     # Prayers
     "Prayer",
     "PrayerBonus",
